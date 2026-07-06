@@ -208,6 +208,7 @@ class BaseAgent(ABC):
 
     async def invoke(self, query: str, format: Optional[str] = None) -> AsyncGenerator[BaseEvent, None]:
         """传递消息+响应格式调用程序生成异步迭代内容"""
+        """执行一个 step 时，Agent 不停地思考是否要调用工具，直到最后不用调用工具，表示这一步结束了"""
         # 1.需要判断下是否传递了format
         format = format if format else self._format
 

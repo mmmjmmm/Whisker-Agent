@@ -36,6 +36,7 @@ class ReActAgent(BaseAgent):
 
     async def execute_step(self, plan: Plan, step: Step, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """根据传递的消息+规划+子步骤，执行相应的子步骤"""
+        """对 Agent 每一步执行过程中的每一个工具调用及输出结果进行处理"""
         # 1.根据传递的内容生成执行消息
         query = EXECUTION_PROMPT.format(
             message=message.message,
@@ -46,15 +47,18 @@ class ReActAgent(BaseAgent):
 
         # 2.更新步骤的执行状态为运行中并返回Step事件
         step.status = ExecutionStatus.RUNNING
+        # 给上层流程 / 前端”事件通知“
         yield StepEvent(step=step, status=StepEventStatus.STARTED)
 
         # 3.调用invoke获取agent返回的事件内容
+        # invoke 会 yield 事件信息，获取这些信息事件（工具调用中/已调用、最终文本、Error...）
         async for event in self.invoke(query):
             # 4.判断事件类型执行不同操作
             if isinstance(event, ToolEvent):
                 # 5.工具事件需要判断工具的名称是否为message_ask_user
                 if event.function_name == "message_ask_user":
                     # 6.工具如果在调用中，我们需要返回一条消息告知用户需要让用户处理什么
+                    # calling 时，讲参数中的 text（要问用户的问题）包成一个 Message 给用户看
                     if event.status == ToolEventStatus.CALLING:
                         yield MessageEvent(
                             role="assistant",
@@ -100,11 +104,12 @@ class ReActAgent(BaseAgent):
         step.status = ExecutionStatus.COMPLETED
 
     async def summarize(self) -> AsyncGenerator[BaseEvent, None]:
-        """调用Agent汇总历史的消息并生成最终回复+附件"""
+        """所有步骤结束，调用Agent汇总历史的消息并生成最终回复+附件"""
         # 1.构建请求query
         query = SUMMARIZE_PROMPT
 
         # 2.调用invoke方法获取Agent生成的事件
+        # 这里 invoke 会把 query 追加进 memory 再发给大模型
         async for event in self.invoke(query):
             # 3.判断事件类型是否为消息事件，如果是则表示Agent结构化生成汇总内容
             if isinstance(event, MessageEvent):
