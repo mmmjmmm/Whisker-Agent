@@ -25,26 +25,38 @@ mooc-manus/
 - Docker >= 20.10
 - Docker Compose >= 2.0
 
-### 一键部署
+### 一键启动
 
 1. **配置环境变量**
 
-   项目根目录下的 `.env` 文件包含所有配置项，请根据实际情况修改：
+   根目录有 `.env.example` 模板，先复制一份作为本机配置：
 
    ```bash
-   # 必须修改的配置
-   COS_SECRET_ID=your_cos_secret_id_here       # 腾讯云 COS SecretId
-   COS_SECRET_KEY=your_cos_secret_key_here     # 腾讯云 COS SecretKey
-   COS_BUCKET=your_cos_bucket_here             # COS 存储桶名称
+   cp .env.example .env
+   ```
 
-   # 可选修改
-   POSTGRES_PASSWORD=postgres                   # 数据库密码
-   NGINX_PORT=8088                              # 对外访问端口
+   至少检查这些配置：
+
+   ```bash
+   # 对外访问端口
+   NGINX_PORT=8088
+
+   # 如果修改 Postgres 用户/密码/库名，也要同步修改 SQLALCHEMY_DATABASE_URI
+   POSTGRES_USER=postgres
+   POSTGRES_PASSWORD=postgres
+   POSTGRES_DB=manus
+   SQLALCHEMY_DATABASE_URI=postgresql+asyncpg://postgres:postgres@manus-postgres:5432/manus
+
+   # 文件上传/下载依赖腾讯云 COS
+   COS_SECRET_ID=
+   COS_SECRET_KEY=
+   COS_REGION=
+   COS_BUCKET=
    ```
 
 2. **配置 AI 模型**
 
-   修改 `api/config.yaml` 中的 LLM 配置：
+   修改 `api/config.yaml` 中的 LLM 配置，填入自己的模型服务地址和 API Key：
 
    ```yaml
    llm_config:
@@ -61,7 +73,22 @@ mooc-manus/
 
 4. **访问系统**
 
-   打开浏览器访问 `http://your-server-ip:8088`
+   本机访问：
+
+   ```text
+   http://localhost:8088
+   ```
+
+   如果改了 `NGINX_PORT`，把端口换成对应值。
+
+5. **检查服务状态**
+
+   ```bash
+   docker compose ps
+   docker compose logs -f manus-api
+   ```
+
+   API 启动时会自动执行 Alembic 数据库迁移，不需要手动建表。
 
 ### 服务架构
 
@@ -121,6 +148,22 @@ docker compose down
 
 # 停止并清除数据卷（谨慎操作）
 docker compose down -v
+```
+
+### 沙箱模式
+
+`.env.example` 默认使用动态沙箱：
+
+```bash
+SANDBOX_ADDRESS=
+SANDBOX_IMAGE=manus-sandbox
+SANDBOX_NETWORK=manus-network
+```
+
+这种模式会让 API 通过 Docker Socket 为任务创建独立沙箱容器。若只想复用 `docker-compose.yml` 中固定的 `manus-sandbox` 服务，可以改成：
+
+```bash
+SANDBOX_ADDRESS=manus-sandbox
 ```
 
 ### 启用 HTTPS
