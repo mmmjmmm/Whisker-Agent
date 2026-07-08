@@ -83,11 +83,11 @@ class DockerSandbox(Sandbox):
             return None
 
     @classmethod
-    def _get_container_ip(cls, container: Model) -> str:
+    def _get_container_ip(cls, container: Model) -> Optional[str]:
         """根据传递的容器获取ip信息"""
         # 1.获取inspect网络设置
-        network_settings = container.attrs["NetworkSettings"]
-        ip_address = network_settings["IPAddress"]
+        network_settings = container.attrs.get("NetworkSettings", {})
+        ip_address = network_settings.get("IPAddress")
 
         # 2.判断容器是否存在ip，如果不存在则从networks中获取
         if not ip_address and "Networks" in network_settings:
@@ -140,6 +140,8 @@ class DockerSandbox(Sandbox):
             # 7.重载并刷新容器信息
             container.reload()
             ip = cls._get_container_ip(container)
+            if not ip:
+                raise Exception(f"创建Docker沙箱容器失败: 无法获取容器[{container_name}]的IP地址")
 
             return DockerSandbox(ip=ip, container_name=container_name)
         except Exception as e:
@@ -207,6 +209,7 @@ class DockerSandbox(Sandbox):
                 # 4.获取容器的ip地址
                 ip = cls._get_container_ip(container)
                 if not ip:
+                    logger.warning(f"容器运行中但无法获取IP地址, 容器名字: {id}")
                     return None
 
                 return DockerSandbox(ip=ip, container_name=id)

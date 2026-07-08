@@ -24,11 +24,24 @@ class Cos:
         self._settings: Settings = get_settings()
         self._client: Optional[CosS3Client] = None
 
+    def _has_required_config(self) -> bool:
+        """检查COS文件能力所需配置是否完整。"""
+        return all([
+            self._settings.cos_region,
+            self._settings.cos_secret_id,
+            self._settings.cos_secret_key,
+            self._settings.cos_bucket,
+        ])
+
     async def init(self) -> None:
         """完成cos腾讯云对象存储客户端的创建"""
         # 1.判断客户端是否存在，如果存则则记录日志并终止程序
         if self._client is not None:
             logger.warning("Cos腾讯云对象存储已初始化，无需重复操作")
+            return
+
+        if not self._has_required_config():
+            logger.warning("Cos腾讯云对象存储配置不完整，跳过初始化，文件上传/下载能力将不可用")
             return
 
         try:
@@ -58,7 +71,7 @@ class Cos:
     def client(self) -> CosS3Client:
         """只读属性，返回腾讯云Cos对象存储客户端"""
         if self._client is None:
-            raise RuntimeError("腾讯云Cos对象存储未初始化，请调用init()完成初始化")
+            raise RuntimeError("腾讯云Cos对象存储未初始化或配置不完整，请检查COS配置")
         return self._client
 
 

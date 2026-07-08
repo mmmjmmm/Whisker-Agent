@@ -1,7 +1,7 @@
 llm_config:
   base_url: https://api.deepseek.com/
-  api_key: sk-088bd7c594cf415e90f0139e6f9cf908
-  model_name: deepseek-reasoner
+  api_key: sk-a7a6eafcde824998ba2d80895931f3cc
+  model_name: deepseek-v4-pro
   temperature: 0.7
   max_tokens: 8192
 agent_config:
@@ -30,4 +30,4 @@ mcp_config:
       headers:
         Authorization: Bearer jina_133c673d569840d3b1e379a526eee6d4VKMVBI9J5HYE2xd4ys7i6ehZUNb6
 a2a_config:
-  a2a_servers: [ ]
+  a2a_servers: []

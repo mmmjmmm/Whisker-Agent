@@ -177,13 +177,17 @@ class AgentService:
                 )
 
                 # 8.将事件添加到任务的输入流中，好让Agent获取到数据
+                # 用户的意图以事件的形式进入 redis 队列，等待后台任务来取，返回 redis 分配的事件 id
                 event_id = await task.input_stream.put(message_event.model_dump_json())
+                # 把事件 id 回填给事件
                 message_event.id = event_id
+                # 把用户消息返回给前端（前端就能渲染会话气泡）
                 yield message_event
                 async with self._uow:
                     await self._uow.session.add_event(session_id, message_event)
 
                 # 9.执行任务
+                # 把执行丢进独立的后台运行的 asyncio 任务里，然后立即返回，不会阻塞
                 await task.invoke()
                 logger.info(f"往会话[{session_id}]输入消息队列写入消息: {message[:50]}...")
 
@@ -193,7 +197,7 @@ class AgentService:
 
             # 11.从任务的输出流中读取数据
             while task and not task.done:
-                # 12.从输出消息队列中获取数据
+                # 12.从输出消息队列中获取数据。从上次读到的位置继续往后读，支持断线重连、断点续传
                 event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
                 latest_event_id = event_id
                 if event_str is None:
@@ -210,6 +214,7 @@ class AgentService:
                     await self._uow.session.update_unread_message_count(session_id, 0)
 
                 # 15.将事件返回并判断事件类型是否为结束类型
+                # yield 将事件交给上层（/{session_id}/chat），上层再转成 SSE 推给前端。
                 yield event
                 if isinstance(event, (DoneEvent, ErrorEvent, WaitEvent)):
                     break
