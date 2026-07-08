@@ -28,13 +28,13 @@ class Settings(BaseSettings):
     redis_db: int = 0
     redis_password: str | None = None
 
-    # Cos腾讯云对象存储配置
-    cos_secret_id: str = ""
-    cos_secret_key: str = ""
-    cos_region: str = ""
-    cos_scheme: str = "https"
-    cos_bucket: str = ""
-    cos_domain: str = ""
+    # 阿里云OSS对象存储配置
+    oss_access_key_id: str = ""
+    oss_access_key_secret: str = ""
+    oss_endpoint: str = ""
+    oss_scheme: str = "https"
+    oss_bucket: str = ""
+    oss_public_base_url: str = ""
 
     # Sandbox配置
     sandbox_address: Optional[str] = None

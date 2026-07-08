@@ -15,16 +15,17 @@ from app.application.services.app_config_service import AppConfigService
 from app.application.services.file_service import FileService
 from app.application.services.session_service import SessionService
 from app.application.services.status_service import StatusService
-from app.infrastructure.external.file_storage.cos_file_storage import CosFileStorage
+from app.infrastructure.external.file_storage.oss_file_storage import OSSFileStorage
 from app.infrastructure.external.health_checker.postgres_health_checker import PostgresHealthChecker
 from app.infrastructure.external.health_checker.redis_health_checker import RedisHealthChecker
+from app.infrastructure.external.health_checker.oss_health_checker import OSSHealthChecker
 from app.infrastructure.external.json_parser.repair_json_parser import RepairJSONParser
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 from app.infrastructure.external.search.bing_search import BingSearchEngine
 from app.infrastructure.external.task.redis_stream_task import RedisStreamTask
 from app.infrastructure.repositories.file_app_config_repository import FileAppConfigRepository
-from app.infrastructure.storage.cos import Cos, get_cos
+from app.infrastructure.storage.oss import OSS, get_oss
 from app.infrastructure.storage.postgres import get_db_session, get_uow
 from app.infrastructure.storage.redis import RedisClient, get_redis
 from core.config import get_settings
@@ -46,24 +47,25 @@ def get_app_config_service() -> AppConfigService:
 def get_status_service(
         db_session: AsyncSession = Depends(get_db_session),
         redis_client: RedisClient = Depends(get_redis),
+        oss: OSS = Depends(get_oss),
 ) -> StatusService:
     """获取状态服务"""
-    # 1.初始化postgres和redis健康检查
+    # 1.初始化postgres、redis和oss健康检查
     postgres_checker = PostgresHealthChecker(db_session)
     redis_checker = RedisHealthChecker(redis_client)
+    oss_checker = OSSHealthChecker(oss)
 
     # 2.创建服务并返回
     logger.info("加载获取StatusService")
-    return StatusService(checkers=[postgres_checker, redis_checker])
+    return StatusService(checkers=[postgres_checker, redis_checker, oss_checker])
 
 
 def get_file_service(
-        cos: Cos = Depends(get_cos)
+        oss: OSS = Depends(get_oss)
 ) -> FileService:
     # 1.初始化文件仓库和文件存储桶
-    file_storage = CosFileStorage(
-        bucket=settings.cos_bucket,
-        cos=cos,
+    file_storage = OSSFileStorage(
+        oss=oss,
         uow_factory=get_uow,
     )
 
@@ -79,7 +81,7 @@ def get_session_service() -> SessionService:
 
 
 def get_agent_service(
-        cos: Cos = Depends(get_cos),
+        oss: OSS = Depends(get_oss),
 ) -> AgentService:
     # 1.获取应用配置信息(读取配置需要实时获取,所以不配置缓存)
     app_config_repository = FileAppConfigRepository(config_path=settings.app_config_filepath)
@@ -87,9 +89,8 @@ def get_agent_service(
 
     # 2.构建依赖实例
     llm = OpenAILLM(app_config.llm_config)
-    file_storage = CosFileStorage(
-        bucket=settings.cos_bucket,
-        cos=cos,
+    file_storage = OSSFileStorage(
+        oss=oss,
         uow_factory=get_uow,
     )
 

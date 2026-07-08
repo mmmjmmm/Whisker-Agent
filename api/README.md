@@ -21,7 +21,7 @@ api/
 │   ├── domain/            # 领域层（核心业务逻辑）
 │   ├── infrastructure/    # 基础设施层（外部服务集成）
 │   │   ├── external/      # 沙箱、浏览器等外部服务
-│   │   ├── storage/       # PostgreSQL、Redis、COS 存储
+│   │   ├── storage/       # PostgreSQL、Redis、OSS 存储
 │   │   └── models/        # ORM 模型
 │   ├── interfaces/        # 接口层（API 端点）
 │   │   ├── endpoints/     # 路由定义

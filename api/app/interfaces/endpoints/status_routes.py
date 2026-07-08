@@ -23,12 +23,12 @@ router = APIRouter(prefix="/status", tags=["状态模块"])
     path="",
     response_model=Response[List[HealthStatus]],
     summary="系统健康检查",
-    description="检查系统的postgres、redis、fastapi等组件的状态信息。"
+    description="检查系统的postgres、redis、oss、fastapi等组件的状态信息。"
 )
 async def get_status(
         status_service: StatusService = Depends(get_status_service),
 ) -> Response:
-    """系统健康检查，检查postgres/redis/fastapi/cos等服务"""
+    """系统健康检查，检查postgres/redis/oss/fastapi等服务"""
     statues = await status_service.check_all()
 
     if any(item.status == "error" for item in statues):

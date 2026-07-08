@@ -34,7 +34,7 @@ from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.flows.planner_react import PlannerReActFlow
 from app.domain.services.tools.a2a import A2ATool
 from app.domain.services.tools.mcp import MCPTool
-from core.config import get_settings
+from app.infrastructure.storage.oss import get_oss
 
 logger = logging.getLogger(__name__)
 
@@ -238,9 +238,8 @@ class AgentTaskRunner(TaskRunner):
             size=self._get_stream_size(io.BytesIO(screenshot)),
         ))
 
-        # 3.获取setting并组装完整URL
-        settings = get_settings()
-        return f"https://{settings.cos_bucket}.cos.{settings.cos_region}.myqcloud.com/{file.key}"
+        # 3.根据 OSS 配置组装完整公开 URL
+        return get_oss().public_url(file.key)
 
     async def _handle_tool_event(self, event: ToolEvent) -> None:
         """额外处理工具消息，使其前端交互更友好"""

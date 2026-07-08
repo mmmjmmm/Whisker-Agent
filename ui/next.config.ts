@@ -6,7 +6,11 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "**.myqcloud.com",
+        hostname: "**.aliyuncs.com",
+      },
+      {
+        protocol: "https",
+        hostname: "**.alicdn.com",
       },
     ],
   },

@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.infrastructure.logging import setup_logging
-from app.infrastructure.storage.cos import get_cos
+from app.infrastructure.storage.oss import get_oss
 from app.infrastructure.storage.postgres import get_postgres
 from app.infrastructure.storage.redis import get_redis
 from app.interfaces.endpoints.routes import router
@@ -52,10 +52,10 @@ async def lifespan(app: FastAPI):
     alembic_cfg = Config("alembic.ini")
     command.upgrade(alembic_cfg, "head")
 
-    # 3.初始化Redis/Postgres/Cos客户端
+    # 3.初始化Redis/Postgres/OSS客户端
     await get_redis().init()
     await get_postgres().init()
-    await get_cos().init()
+    await get_oss().init()
 
     try:
         # 4.lifespan分界点
@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
         # 6.关闭其他应用
         await get_redis().shutdown()
         await get_postgres().shutdown()
-        await get_cos().shutdown()
+        await get_oss().shutdown()
 
         logger.info("Manus应用关闭成功")
 

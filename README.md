@@ -47,11 +47,12 @@ mooc-manus/
    POSTGRES_DB=manus
    SQLALCHEMY_DATABASE_URI=postgresql+asyncpg://postgres:postgres@manus-postgres:5432/manus
 
-   # 文件上传/下载依赖腾讯云 COS
-   COS_SECRET_ID=
-   COS_SECRET_KEY=
-   COS_REGION=
-   COS_BUCKET=
+   # 文件上传/下载依赖阿里云 OSS
+   OSS_ACCESS_KEY_ID=
+   OSS_ACCESS_KEY_SECRET=
+   OSS_ENDPOINT=oss-cn-hangzhou.aliyuncs.com
+   OSS_BUCKET=
+   OSS_PUBLIC_BASE_URL=
    ```
 
 2. **配置 AI 模型**

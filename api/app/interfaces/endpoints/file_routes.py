@@ -24,7 +24,7 @@ router = APIRouter(prefix="/files", tags=["文件模块"])
     path="",
     response_model=Response[FileInfo],
     summary="对话文件上传接口",
-    description="在对话接口中，将文件上传到cos对象存储和沙箱中"
+    description="在对话接口中，将文件上传到OSS对象存储和沙箱中"
 )
 async def upload_file(
         file: UploadFile = File(...),

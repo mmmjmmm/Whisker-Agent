@@ -4,6 +4,15 @@ alembic==1.16.5 \
     --hash=sha256:a88bb7f6e513bd4301ecf4c7f2206fe93f9913f9b48dac3b78babde2d6fe765e \
     --hash=sha256:e845dfe090c5ffa7b92593ae6687c5cb1a101e91fa53868497dbd79847f9dbe3
     # via api
+aliyun-python-sdk-core==2.16.0 \
+    --hash=sha256:651caad597eb39d4fad6cf85133dffe92837d53bdf62db9d8f37dab6508bb8f9
+    # via
+    #   aliyun-python-sdk-kms
+    #   oss2
+aliyun-python-sdk-kms==2.16.5 \
+    --hash=sha256:24b6cdc4fd161d2942619479c8d050c63ea9cd22b044fe33b60bbb60153786f0 \
+    --hash=sha256:f328a8a19d83ecbb965ffce0ec1e9930755216d104638cd95ecd362753b813b3
+    # via oss2
 annotated-types==0.7.0 \
     --hash=sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53 \
     --hash=sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89
@@ -157,13 +166,9 @@ colorama==0.4.6 ; sys_platform == 'win32' \
     #   click
     #   tqdm
     #   uvicorn
-cos-python-sdk-v5==1.9.38 \
-    --hash=sha256:1d3dd3be2bd992b2e9c2dcd018e2596aa38eab022dbc86b4a5d14c8fc88370e6 \
-    --hash=sha256:491a8689ae2f1a6f04dacba66a877b2c8d361456f9cfd788ed42170a1cbf7a9f
-    # via api
 crcmod==1.7 \
     --hash=sha256:dc7051a0db5f2bd48665a990d3ec1cc305a466a77358ca4492826f41f283601e
-    # via cos-python-sdk-v5
+    # via oss2
 cryptography==46.0.3 \
     --hash=sha256:00a5e7e87938e5ff9ff5447ab086a5706a957137e6e433841e9d24f38a065217 \
     --hash=sha256:01ca9ff2885f3acc98c29f1860552e37f6d7c7d013d7334ff2a9de43a449315d \
@@ -211,7 +216,9 @@ cryptography==46.0.3 \
     --hash=sha256:e5bf0ed4490068a2e72ac03d786693adeb909981cc596425d09032d372bcc849 \
     --hash=sha256:ef639cb3372f69ec44915fafcd6698b6cc78fbe0c2ea41be867f6ed612811963 \
     --hash=sha256:f260d0d41e9b4da1ed1e0f1ce571f97fe370b152ab18778e9e8f67d6af432018
-    # via pyjwt
+    # via
+    #   aliyun-python-sdk-core
+    #   pyjwt
 distro==1.9.0 \
     --hash=sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed \
     --hash=sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2
@@ -352,6 +359,10 @@ jiter==0.10.0 \
     --hash=sha256:fa3402a2ff9815960e0372a47b75c76979d74402448509ccd49a275fa983ef8a \
     --hash=sha256:fcedb049bdfc555e261d6f65a6abe1d5ad68825b7202ccb9692636c70fcced86
     # via openai
+jmespath==0.10.0 \
+    --hash=sha256:b85d0567b8666149a93172712e68920734333c0ce7e89b78b3e987f71e5ed4f9 \
+    --hash=sha256:cdf6525904cc597730141d61b36f2e4b8ecc257c420fa2f4549bac2c2d0cb72f
+    # via aliyun-python-sdk-core
 json-repair==0.53.0 \
     --hash=sha256:17f7439e41ae39964e1d678b1def38cb8ec43d607340564acf3e62d8ce47a727 \
     --hash=sha256:97fcbf1eea0bbcf6d5cc94befc573623ab4bbba6abdc394cfd3b933a2571266d
@@ -412,6 +423,9 @@ mcp==1.22.0 \
 openai==1.107.2 \
     --hash=sha256:a11fe8d4318e98e94309308dd3a25108dec4dfc1b606f9b1c5706e8d88bdd3cb \
     --hash=sha256:d159d4f3ee3d9c717b248c5d69fe93d7773a80563c8b1ca8e9cad789d3cf0260
+    # via api
+oss2==2.19.1 \
+    --hash=sha256:a8ab9ee7eb99e88a7e1382edc6ea641d219d585a7e074e3776e9dec9473e59c1
     # via api
 playwright==1.56.0 \
     --hash=sha256:0ef7e6fd653267798a8a968ff7aa2dcac14398b7dd7440ef57524e01e0fbbd65 \
@@ -477,7 +491,7 @@ pycryptodome==3.23.0 \
     --hash=sha256:d97618c9c6684a97ef7637ba43bdf6663a2e2e77efe0f863cce97a76af396446 \
     --hash=sha256:dea827b4d55ee390dc89b2afe5927d4308a8b538ae91d9c6f7a5090f397af1aa \
     --hash=sha256:eb8f24adb74984aa0e5d07a2368ad95276cf38051fe2dc6605cbcf482e04f2a7
-    # via cos-python-sdk-v5
+    # via oss2
 pydantic==2.11.9 \
     --hash=sha256:6b8ffda597a14812a7975c90b82a8a2e777d9257aba3453f973acd3c032a18e2 \
     --hash=sha256:c42dd626f5cfc1c6950ce6205ea58c93efa406da65f479dcb4029d5934857da2
@@ -593,8 +607,8 @@ requests==2.32.5 \
     --hash=sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6 \
     --hash=sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf
     # via
-    #   cos-python-sdk-v5
     #   docker
+    #   oss2
 rpds-py==0.29.0 \
     --hash=sha256:00e56b12d2199ca96068057e1ae7f9998ab6e99cda82431afafd32f3ec98cca9 \
     --hash=sha256:05a2bd42768ea988294ca328206efbcc66e220d2d9b7836ee5712c07ad6340ea \
@@ -677,8 +691,8 @@ six==1.17.0 \
     --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274 \
     --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
     # via
-    #   cos-python-sdk-v5
     #   markdownify
+    #   oss2
 sniffio==1.3.1 \
     --hash=sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2 \
     --hash=sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc
@@ -861,7 +875,3 @@ websockets==15.0.1 \
     --hash=sha256:f7a866fbc1e97b5c617ee4116daaa09b722101d4a3c170c787450ba409f9736f \
     --hash=sha256:fcd5cf9e305d7b8338754470cf69cf81f420459dbae8a3b40cee57417f4614a7
     # via uvicorn
-xmltodict==1.0.2 \
-    --hash=sha256:54306780b7c2175a3967cad1db92f218207e5bc1aba697d887807c0fb68b7649 \
-    --hash=sha256:62d0fddb0dcbc9f642745d8bbf4d81fd17d6dfaec5a15b5c1876300aad92af0d
-    # via cos-python-sdk-v5
