@@ -5,7 +5,6 @@
 @File    : oss.py
 """
 import logging
-import asyncio
 from functools import lru_cache
 from typing import Optional
 
@@ -53,7 +52,7 @@ class OSS:
 
     async def check(self) -> None:
         """向 OSS 发起轻量请求，校验 endpoint、bucket 和密钥是否可用。"""
-        await asyncio.to_thread(self.bucket.get_bucket_info)
+        self.bucket.get_bucket_info()
 
     async def init(self) -> None:
         """初始化阿里云 OSS Bucket 客户端。"""
@@ -70,7 +69,11 @@ class OSS:
                 self._settings.oss_access_key_id,
                 self._settings.oss_access_key_secret,
             )
-            self._bucket = oss2.Bucket(auth, self._endpoint_url(), self._settings.oss_bucket)
+            self._bucket = oss2.Bucket(
+                auth,
+                self._endpoint_url(),
+                self._settings.oss_bucket,
+            )
             await self.check()
             logger.info("阿里云OSS初始化成功")
         except Exception as e:
