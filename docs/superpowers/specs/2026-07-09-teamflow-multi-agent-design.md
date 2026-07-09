@@ -1,35 +1,40 @@
-# TeamFlow Multi-Agent Design
+# TeamFlow 多 Agent 设计方案
 
-## Goal
+## 目标
 
-Add a first-version multi-agent execution mode to mooc-manus using a central coordinator, a DAG task graph, and a pool of homogeneous local worker agents. The existing `PlannerReActFlow` remains the default single-executor flow; the new mode is opt-in through chat request mode.
+为 mooc-manus 增加第一版可落地的 multi-agent 执行模式。这个模式使用中心编排、DAG 任务图和本地同构 Worker 池，让多个相互独立的任务可以受控并行执行。
 
-## Scope
+现有 `PlannerReActFlow` 继续作为默认单执行 Agent 流程。新的 TeamFlow 通过聊天请求中的 `mode="team"` 显式启用，不自动替换现有行为。
 
-This design covers the first production-oriented version of TeamFlow:
+## 第一版范围
 
-- Local homogeneous worker pool.
-- DAG planning with explicit dependencies.
-- Controlled parallel execution for safe task profiles.
-- Per-task review and retry.
-- Final synthesis.
-- SSE events that expose task and agent identity.
+第一版只做这些能力：
 
-A2A remains available as a tool in this version. Remote A2A agents are not yet first-class schedulable agents.
+- 本地同构 Worker 池。
+- TeamPlannerAgent 生成带依赖关系的 DAG 任务图。
+- 对安全任务类型做受控并行。
+- 对每个任务做 Reviewer 审查和有限重试。
+- 最后由 SynthesizerAgent 汇总结果。
+- SSE 事件中显式暴露 `task_id`、`agent_id`、`agent_profile`，让前端能正确展示并行任务。
 
-## Non-Goals
+A2A 在第一版中仍然作为工具存在，不作为可被调度的 RemoteAgent。也就是说，Worker 可以调用 A2A 工具，但 Orchestrator 不会把某个任务直接派给远程 A2A Agent。
 
-- Do not replace `PlannerReActFlow`.
-- Do not auto-select between single-agent and team mode.
-- Do not create dynamic expert agents such as fixed `BrowserAgent` or `CodingAgent`.
-- Do not make A2A remote agents part of scheduling in v1.
-- Do not parallelize write, shell, browser mutation, MCP, or A2A tasks by default.
-- Do not build a full DAG visualization in the first UI pass.
-- Do not add long-term memory, code RAG, or LSP features as part of this work.
+## 非目标
 
-## Existing Architecture Context
+第一版明确不做：
 
-The current agent execution path is:
+- 不替换现有 `PlannerReActFlow`。
+- 不自动判断是否使用 team mode。
+- 不创建动态专家 Agent，例如固定的 `BrowserAgent`、`CodingAgent`、`ResearchAgent`。
+- 不把 A2A 远程 Agent 纳入调度。
+- 不默认并行写文件、Shell、浏览器改写、MCP、A2A 任务。
+- 不做完整 DAG 图形化可视化。
+- 不加入长期记忆、代码 RAG、LSP。
+- 不做复杂的 HITL 审批系统，但设计要给后续审批预留位置。
+
+## 当前架构上下文
+
+当前 mooc-manus 的执行链路是：
 
 ```text
 Session route
@@ -38,37 +43,54 @@ Session route
   -> PlannerReActFlow
   -> PlannerAgent
   -> ReActAgent
-  -> Tool events / message events
+  -> ToolEvent / MessageEvent / DoneEvent
 ```
 
-Important current properties:
+当前实现有几个关键特点：
 
-- `PlannerReActFlow` is linear: it asks `Plan.get_next_step()` for the next unfinished step.
-- `BaseAgent._invoke_llm()` currently keeps only the first model tool call with `tool_calls[:1]`.
-- Frontend timeline grouping uses the latest active step to attach tool events. That is not sufficient for parallel tasks.
-- Session events are persisted as JSONB events and streamed over SSE.
-- `AgentTaskRunner` owns sandbox setup, MCP/A2A initialization, file syncing, tool event enrichment, and session status updates.
+- `PlannerReActFlow` 是线性的：通过 `Plan.get_next_step()` 找下一个未完成步骤。
+- `BaseAgent._invoke_llm()` 会把模型返回的 `tool_calls` 截断为 `tool_calls[:1]`，所以单个 ReActAgent 一次只执行一个工具调用。
+- 前端时间线目前通过“最近活跃 step”把工具事件挂到 step 下。并行场景下这个逻辑会混乱，必须改为显式 `task_id` 归属。
+- Session events 持久化为 JSONB，并通过 SSE 流式返回。
+- `AgentTaskRunner` 负责沙箱初始化、MCP/A2A 初始化、附件同步、工具事件增强、文件同步到对象存储、会话状态更新。
 
-The new TeamFlow should reuse these responsibilities instead of duplicating sandbox or storage logic.
+TeamFlow 应该复用这些已有职责，不应该重新实现一套沙箱、文件同步或事件存储。
 
-## Recommended Architecture
+## 推荐架构
 
-Add a new flow beside `PlannerReActFlow`:
+新增一个和 `PlannerReActFlow` 并列的 `TeamFlow`：
 
 ```text
 ChatRequest(mode="team")
   -> AgentTaskRunner
   -> TeamFlow
-  -> TeamPlannerAgent creates TaskGraph
-  -> TeamOrchestrator schedules ready task nodes
-  -> WorkerAgent pool executes task nodes
-  -> ReviewerAgent validates each task result
-  -> SynthesizerAgent creates final response
+  -> TeamPlannerAgent 创建 TaskGraph
+  -> TeamOrchestrator 调度 ready tasks
+  -> WorkerAgent 池执行任务
+  -> ReviewerAgent 审查任务结果
+  -> SynthesizerAgent 汇总最终回复
 ```
 
-`TeamOrchestrator` is code, not an LLM agent. It owns scheduling, dependency resolution, concurrency, locks, retries, timeout handling, and state transitions. LLM agents own reasoning tasks only: planning, executing, reviewing, and synthesizing.
+这里的 `TeamOrchestrator` 是代码编排层，不是 LLM Agent。它负责：
 
-## New Files
+- 依赖关系判断。
+- 并发控制。
+- 资源锁。
+- 重试。
+- 超时。
+- 状态流转。
+- 事件输出。
+
+LLM Agent 只负责需要模型推理的工作：
+
+- `TeamPlannerAgent`：规划。
+- `WorkerAgent`：执行单个任务。
+- `ReviewerAgent`：审查单个任务。
+- `SynthesizerAgent`：最终汇总。
+
+## 文件设计
+
+新增文件：
 
 ```text
 api/app/domain/models/task_graph.py
@@ -85,7 +107,7 @@ api/app/domain/services/prompts/reviewer.py
 api/app/domain/services/prompts/synthesizer.py
 ```
 
-Existing files to modify:
+需要修改的已有文件：
 
 ```text
 api/app/domain/models/app_config.py
@@ -101,14 +123,17 @@ ui/src/components/plan-panel.tsx
 ui/src/components/tool-use/index.tsx
 ```
 
-## Request Mode
+第一版暂时不新增 `AgentRegistry`。原因是第一版没有 RemoteAgent 调度，本地 worker 是同构池，用配置控制数量即可。`AgentRegistry` 留到第二版接 A2A RemoteAgent 时再做。
 
-Extend `ChatRequest` with an explicit mode:
+## 请求模式
+
+扩展 `ChatRequest`，增加显式模式：
 
 ```python
 class AgentMode(str, Enum):
     REACT = "react"
     TEAM = "team"
+
 
 class ChatRequest(BaseModel):
     message: Optional[str] = None
@@ -118,11 +143,11 @@ class ChatRequest(BaseModel):
     mode: AgentMode = AgentMode.REACT
 ```
 
-The first version does not use `auto`. Users or the UI must choose team mode explicitly.
+第一版不做 `auto`。原因是自动模式选择会让行为不透明，也会增加调试成本。用户或 UI 必须明确选择 team mode。
 
-## Configuration
+## Agent 配置
 
-Extend `AgentConfig`:
+扩展 `AgentConfig`：
 
 ```python
 class AgentConfig(BaseModel):
@@ -136,11 +161,13 @@ class AgentConfig(BaseModel):
     team_task_timeout_seconds: int = Field(default=300, ge=30, le=1800)
 ```
 
-`team_enabled` protects the feature during rollout. If `mode="team"` is requested while disabled, the backend returns an `ErrorEvent` explaining that team mode is disabled.
+默认 `team_enabled=False`，方便灰度。如果用户请求 `mode="team"` 但功能未启用，后端返回 `ErrorEvent`，不执行 TeamFlow。
 
-## TaskGraph Model
+## TaskGraph 模型
 
-Add `api/app/domain/models/task_graph.py`:
+新增 `api/app/domain/models/task_graph.py`。
+
+核心模型：
 
 ```python
 class TaskStatus(str, Enum):
@@ -202,19 +229,21 @@ class TaskGraph(BaseModel):
     message: str = ""
 ```
 
-Validation requirements:
+后端必须做图校验：
 
-- Every dependency must refer to an existing task ID.
-- The graph must be acyclic.
-- `allowed_tools` must be a subset of the tools allowed by the task profile.
-- At least one task must exist.
-- Task IDs should be stable, short, and unique within the graph. The planner may output IDs such as `task_1`; backend validation enforces uniqueness.
+- 每个 dependency 必须引用存在的 task ID。
+- 图不能有环。
+- 至少存在一个 task。
+- task ID 在图内必须唯一。
+- `allowed_tools` 必须是该 `profile` 允许的工具子集。
 
-## Tool Policy
+Planner 可以输出 `task_1`、`task_2` 这类短 ID。后端只要求图内唯一，不要求 UUID。
 
-Add `tool_policy.py` to centralize profile-to-tool rules and concurrency classification.
+## 工具策略
 
-Default profile policy:
+新增 `tool_policy.py`，统一管理 profile 到工具白名单、并发策略的映射。
+
+第一版默认策略：
 
 ```text
 research:
@@ -245,18 +274,26 @@ shell:
   parallel: no
 ```
 
-MCP and A2A tools are not enabled by default for parallel tasks. If a planner emits MCP/A2A usage, TeamFlow treats that task as non-parallel unless a later version adds explicit tool metadata for side-effect safety.
+MCP 和 A2A 第一版不进入默认并行白名单。如果 planner 生成了 MCP/A2A 工具使用，TeamFlow 默认把这个 task 视为不可并行，除非后续版本为工具增加明确的副作用元数据。
 
-Tool enforcement happens twice:
+工具权限要做两层校验：
 
-1. Schema exposure: `WorkerAgent` only exposes allowed tool schemas to the model.
-2. Runtime enforcement: `_get_tool()` or `WorkerAgent` rejects a tool call whose function name is outside `allowed_tools`.
+1. 暴露 schema 时，只把 `allowed_tools` 中的工具 schema 给模型。
+2. 执行工具时，再检查一次工具名是否在 `allowed_tools` 中。
 
-This prevents the model from calling unauthorized tools even if it fabricates a tool call.
+第二层校验很重要，因为模型可能伪造一个没有暴露的 tool call。
 
-## Homogeneous Worker Pool
+## 同构 Worker 池
 
-Workers are homogeneous:
+Worker 数量由配置控制，例如：
+
+```text
+max_workers = 3
+max_parallel_tasks = 3
+max_task_retries = 1
+```
+
+Worker 本身同构：
 
 ```text
 worker-1
@@ -264,46 +301,47 @@ worker-2
 worker-3
 ```
 
-They share the same `WorkerAgent` implementation and prompt. A worker is temporarily specialized by task context:
+它们都使用同一个 `WorkerAgent` 类和同一套 Worker prompt。区别只在每次执行任务时注入的 profile、工具白名单和上下文不同。
+
+示例：
 
 ```text
 Agent ID: worker-2
 Execution profile: research
 Allowed tools: search_web, browser_navigate, browser_view
-Current task: Compare pricing claims on the target website.
+Current task: 调研目标网站上的价格信息
 Dependency results: ...
 ```
 
-Workers do not own permanent roles such as browser worker or file worker. This keeps scheduling simple and avoids idle fixed-role workers.
+同一个 `worker-2` 上一轮可以执行 `research` 任务，下一轮可以执行 `file_read` 任务。worker 没有永久专家身份。
 
-## Agent Responsibilities
+## Agent 职责
 
 ### TeamPlannerAgent
 
-- Inherits `BaseAgent`.
-- Uses `tool_choice="none"`.
-- Outputs a strict `TaskGraph` JSON object.
-- Does not execute tools.
-- Must include dependencies and profiles for each task.
-- Must keep tasks coarse enough to be useful but small enough to execute independently.
+职责：
+
+- 继承 `BaseAgent`。
+- `tool_choice="none"`。
+- 只输出严格的 `TaskGraph` JSON。
+- 不调用工具。
+- 为每个 task 输出 dependencies、profile、parallelizable、allowed_tools、risk_level。
+- 任务粒度要适中：能独立执行，但不能碎到过度消耗调度和 token。
 
 ### WorkerAgent
 
-- Inherits `BaseAgent`.
-- Executes one `TaskNode`.
-- Receives:
-  - original user goal,
-  - current task,
-  - task profile,
-  - allowed tools,
-  - dependency task results,
-  - attachments and relevant sandbox file paths.
-- Returns structured JSON:
+职责：
+
+- 继承 `BaseAgent`。
+- 一次只执行一个 `TaskNode`。
+- 接收当前任务、原始用户目标、依赖结果、附件路径、profile、allowed_tools。
+- 只暴露当前任务允许的工具。
+- 输出结构化 JSON：
 
 ```json
 {
   "success": true,
-  "result": "Task result text",
+  "result": "任务执行结果文本",
   "artifacts": [],
   "notes": []
 }
@@ -311,9 +349,12 @@ Workers do not own permanent roles such as browser worker or file worker. This k
 
 ### ReviewerAgent
 
-- Reviews one task result.
-- First version may run without tools, or only with read-only tools when the task produced files or browser output.
-- Outputs strict JSON:
+职责：
+
+- 审查单个 task 的结果。
+- 第一版默认不使用写工具。
+- 可选择允许只读工具，例如读取文件、查看浏览器当前状态、读取 shell 输出。
+- 输出严格 JSON：
 
 ```json
 {
@@ -324,54 +365,60 @@ Workers do not own permanent roles such as browser worker or file worker. This k
 }
 ```
 
-If reviewer JSON parsing fails, TeamFlow treats the review as not approved and allows one retry when `max_task_retries > 0`.
+如果 Reviewer 输出无法解析为 JSON，TeamFlow 保守处理为不通过。如果还有重试次数，则把解析失败作为反馈交给 Worker 重试。
 
 ### SynthesizerAgent
 
-- Produces the final user-facing response from:
-  - original goal,
-  - task graph,
-  - completed task results,
-  - failed/skipped task summaries,
-  - attachments/artifacts.
-- Does not continue task execution.
+职责：
 
-## TeamFlow Responsibilities
+- 根据原始目标、TaskGraph、已完成任务结果、失败/跳过任务、附件产物生成最终回复。
+- 不继续执行任务。
+- 不调用有副作用工具。
 
-`TeamFlow` is the flow implementation invoked by `AgentTaskRunner`.
+## TeamFlow 职责
 
-Responsibilities:
+`TeamFlow` 是 `AgentTaskRunner` 调用的新 flow。
 
-- Check `agent_config.team_enabled`.
-- Run `TeamPlannerAgent`.
-- Validate `TaskGraph`.
-- Emit `TaskGraphEvent`.
-- Instantiate `TeamOrchestrator`.
-- Stream all task, tool, review, retry, message, error, and done events.
-- Run final synthesis when every task is terminal.
+职责：
 
-`TeamFlow` should not contain low-level scheduling details. That belongs in `TeamOrchestrator`.
+- 检查 `agent_config.team_enabled`。
+- 调用 `TeamPlannerAgent` 创建 TaskGraph。
+- 校验 TaskGraph。
+- 发送 `TaskGraphEvent`。
+- 创建并运行 `TeamOrchestrator`。
+- 流式输出 task、tool、review、retry、message、error、done 事件。
+- 所有 task 终态后调用 `SynthesizerAgent`。
 
-## TeamOrchestrator Scheduling
+`TeamFlow` 不应该包含底层调度细节。底层调度放在 `TeamOrchestrator`。
 
-The orchestrator loops until all tasks are terminal:
+## TeamOrchestrator 调度逻辑
+
+Orchestrator 循环直到所有任务进入终态：
 
 ```text
-1. Find ready tasks:
-   status == pending and every dependency is completed.
-2. Mark tasks whose dependencies failed or skipped as skipped.
-3. Split ready tasks by safety:
-   safe parallel profiles: research, file_read, analysis.
-   serialized profiles: browser, file_write, shell, MCP/A2A.
-4. Execute a safe batch with bounded concurrency:
-   min(max_workers, max_parallel_tasks, number of ready safe tasks).
-5. Execute serialized tasks one by one behind resource locks.
-6. Review each task result.
-7. Retry rejected tasks up to max_task_retries.
-8. Emit status events for every transition.
+1. 找 ready tasks：
+   status == pending，并且所有 dependencies 都是 completed。
+
+2. 如果某个 pending task 的依赖已经 failed/skipped：
+   将该 task 标记为 skipped。
+
+3. 将 ready tasks 分组：
+   可安全并行：research、file_read、analysis。
+   必须串行：browser、file_write、shell、MCP/A2A。
+
+4. 对安全任务批次做受控并行：
+   并发数 = min(max_workers, max_parallel_tasks, ready_safe_task_count)
+
+5. 对串行任务按资源锁逐个执行。
+
+6. 每个 task 执行完成后进入 review。
+
+7. review 不通过则 retry。
+
+8. retry 超限则 failed。
 ```
 
-Concurrency primitives:
+建议并发原语：
 
 ```python
 worker_semaphore = asyncio.Semaphore(agent_config.max_workers)
@@ -382,11 +429,11 @@ shell_lock = asyncio.Lock()
 external_tool_lock = asyncio.Lock()
 ```
 
-The first version uses global locks instead of path-level locks. Path-level file locks can be added later.
+第一版使用全局锁，不做 path-level file lock。后续如果需要，可以再对 `file_write` 增加基于路径的锁。
 
-## Event Model
+## 事件模型
 
-Add domain events:
+新增领域事件：
 
 ```python
 class TaskGraphEvent(BaseEvent):
@@ -417,7 +464,7 @@ class TaskRetryEvent(BaseEvent):
     feedback: str
 ```
 
-Extend `ToolEvent` with optional metadata:
+扩展 `ToolEvent`，增加可选元数据：
 
 ```python
 task_id: Optional[str] = None
@@ -425,57 +472,66 @@ agent_id: Optional[str] = None
 agent_profile: Optional[str] = None
 ```
 
-All events emitted from a worker task must include task and agent identity. This is required because parallel task execution makes "attach to latest step" incorrect.
+所有 Worker 发出的工具事件都必须带这些字段。并行执行时，不能再依赖“最近 step”判断工具归属。
 
-## SSE Schema and Frontend
+## SSE Schema 和前端展示
 
-Backend schema additions:
+后端 schema 需要新增：
 
-- Add SSE data classes for `task_graph`, `task`, `task_review`, and `task_retry`.
-- Extend `ToolEventData` with `task_id`, `agent_id`, and `agent_profile`.
+- `task_graph` 事件数据。
+- `task` 事件数据。
+- `task_review` 事件数据。
+- `task_retry` 事件数据。
+- `ToolEventData` 增加 `task_id`、`agent_id`、`agent_profile`。
 
-Frontend additions:
-
-- Extend `SSEEventType` with:
-  - `task_graph`
-  - `task`
-  - `task_review`
-  - `task_retry`
-- Add types for `TaskGraph`, `TaskNode`, `TaskReview`.
-- Add timeline item kinds:
-  - `task`
-  - `task_review`
-  - `task_retry`
-
-Frontend grouping rule:
+前端类型需要新增：
 
 ```text
-If tool.task_id exists:
-  attach the tool event to the matching task item.
-Else:
-  fall back to the existing lastStepId behavior for legacy PlannerReActFlow events.
+SSEEventType:
+  task_graph
+  task
+  task_review
+  task_retry
+
+类型:
+  TaskGraph
+  TaskNode
+  TaskReview
 ```
 
-The first UI pass should show task rows in topological order with:
+前端时间线新增：
 
-- task description,
-- status,
-- assigned worker ID,
-- profile,
-- retry count,
-- nested tools,
-- review result.
+```text
+TimelineItem kind:
+  task
+  task_review
+  task_retry
+```
 
-The existing plan panel can render a task graph as a topologically sorted list. Full node-edge DAG visualization is deferred.
+工具归属规则：
 
-## AgentTaskRunner Integration
+```text
+如果 tool.task_id 存在：
+  挂到对应 task 下。
+否则：
+  走旧的 lastStepId 逻辑，兼容 PlannerReActFlow。
+```
 
-`AgentTaskRunner` should construct both flow dependencies but instantiate the active flow based on request mode. Since the current runner is created before an input message is popped, there are two viable implementation paths:
+第一版 UI 不做完整 DAG 图。`plan-panel` 可以按拓扑顺序展示 task 列表，字段包括：
 
-1. Store the mode on input `MessageEvent` or `Message` and lazily create the flow in `_run_flow()`.
-2. Keep a default `PlannerReActFlow`, and create `TeamFlow` only when a team-mode message arrives.
+- task 描述。
+- task 状态。
+- assigned worker ID。
+- profile。
+- retry count。
+- nested tools。
+- review 结果。
 
-Recommended path: lazy flow selection in `_run_flow(message, mode)`.
+## AgentTaskRunner 接入
+
+当前 `AgentTaskRunner` 在构造时固定创建 `PlannerReActFlow`。TeamFlow 需要按请求模式选择。
+
+推荐做法：在 `_run_flow(message, mode)` 中懒加载选择 flow：
 
 ```python
 if mode == AgentMode.TEAM:
@@ -484,18 +540,25 @@ else:
     flow = self._planner_react_flow
 ```
 
-`AgentTaskRunner` keeps ownership of:
+原因：
 
-- sandbox setup,
-- MCP/A2A initialization,
-- tool event enrichment,
-- file sync to sandbox and storage,
-- persisted session events,
-- session title/latest message/status updates.
+- `AgentTaskRunner` 创建时还不知道当前输入消息的 mode。
+- 不需要为每个 task runner 永远创建 TeamFlow。
+- 保留现有 react 模式的行为。
 
-## Shared Context
+`AgentTaskRunner` 仍然负责：
 
-Do not share the full conversation history across workers. Use a structured shared context:
+- sandbox 初始化。
+- MCP/A2A 初始化。
+- 工具事件增强。
+- 文件同步到 sandbox。
+- 文件同步到对象存储。
+- 持久化 session events。
+- 更新 session title/latest message/status。
+
+## SharedContext
+
+不要让所有 worker 共享完整对话历史。共享上下文应该是结构化的：
 
 ```text
 original_user_goal
@@ -507,119 +570,128 @@ artifacts
 failed_or_skipped_tasks
 ```
 
-Each worker receives only:
+每个 Worker 只拿这些内容：
 
-- original goal,
-- current task,
-- direct dependency results,
-- relevant attachments,
-- allowed tools/profile.
+- 原始目标。
+- 当前 task。
+- 直接依赖 task 的结果。
+- 相关附件。
+- profile。
+- allowed_tools。
 
-This keeps token usage bounded and reduces cross-task contamination.
+这样可以降低 token 使用，减少不同任务之间的上下文污染。
 
-## Failure Handling
+## 失败处理
 
-Planner failures:
+Planner 阶段：
 
-- JSON parse failure: emit `ErrorEvent`, stop.
-- Graph validation failure: emit `ErrorEvent`, stop.
-- Empty graph: emit `ErrorEvent`, stop.
+- JSON 解析失败：发送 `ErrorEvent`，停止。
+- TaskGraph 校验失败：发送 `ErrorEvent`，停止。
+- 空 TaskGraph：发送 `ErrorEvent`，停止。
 
-Task failures:
+Task 阶段：
 
-- Worker error: mark task `failed`.
-- Reviewer rejection: mark task `retrying`, retry with feedback until `max_task_retries`.
-- Retry exhaustion: mark task `failed`, keep last result in `result` when available.
-- Dependency failed/skipped: mark downstream task `skipped`.
+- Worker 执行异常：task 标记为 `failed`。
+- Reviewer 不通过：task 标记为 `retrying`，带 feedback 重试。
+- 重试耗尽：task 标记为 `failed`，如果有最后一次结果则保留在 `result`。
+- 依赖失败或跳过：下游 task 标记为 `skipped`。
 
-Cancellation:
+取消：
 
-- Existing session stop should cancel running tasks.
-- Running worker tasks should emit terminal task events where possible.
-- Flow ends with `DoneEvent`.
+- 沿用现有 stop session 能力。
+- 正在运行的 worker task 尽量发送终态 task 事件。
+- Flow 结束时发送 `DoneEvent`。
 
-Timeout:
+超时：
 
-- Each task execution is wrapped with `asyncio.wait_for(..., team_task_timeout_seconds)`.
-- Timeout marks the task `failed` with an explicit timeout error.
+- 每个 task 用 `asyncio.wait_for(..., team_task_timeout_seconds)` 包裹。
+- 超时后 task 标记为 `failed`，错误信息明确写超时。
 
-Reviewer parse failure:
+Reviewer JSON 解析失败：
 
-- Treat as rejection.
-- Feedback: `Reviewer output could not be parsed as review JSON. Re-evaluate and produce a valid task result.`
-- Retry if retries remain.
+- 默认视为不通过。
+- feedback 写入：`Reviewer 输出无法解析为 review JSON，请重新执行并产生可审查结果。`
+- 如果还有重试次数，则重试。
 
-## Security and Safety
+## 安全策略
 
-The first version adds tool allowlists but does not fully solve high-risk operations. For safety:
+第一版先做工具白名单和并发限制，不解决所有高风险操作。
 
-- Only read-only and analysis profiles run in parallel.
-- `file_write`, `shell`, `browser`, MCP, and A2A tasks are serialized.
-- Runtime tool authorization checks are mandatory.
-- Existing `message_ask_user` behavior remains available inside workers.
-- A future HITL approval system should be added before allowing broad parallel write/shell/browser operations.
+安全规则：
 
-## Rollout
+- 只有 `research`、`file_read`、`analysis` 默认可并行。
+- `file_write`、`shell`、`browser`、MCP、A2A 默认串行。
+- 工具调用必须做运行时授权校验。
+- `message_ask_user` 保留现有等待用户机制。
+- 后续加入 HITL 审批后，再考虑放宽写文件、Shell、浏览器改写的并行能力。
 
-Phase 1:
+## 落地阶段
 
-- Add models, events, schemas, prompts.
-- Add TeamPlannerAgent, WorkerAgent, ReviewerAgent, SynthesizerAgent.
-- Implement TeamFlow and TeamOrchestrator.
-- Keep UI minimal with topological task list.
-- Team mode disabled by default.
+### Phase 1：后端核心链路
 
-Phase 2:
+- 新增 TaskGraph 模型。
+- 新增 Team 相关事件。
+- 新增 TeamPlannerAgent、WorkerAgent、ReviewerAgent、SynthesizerAgent。
+- 新增 TeamFlow 和 TeamOrchestrator。
+- 增加工具白名单过滤。
+- Team mode 默认关闭。
 
-- Enable team mode through settings and chat request mode.
-- Add frontend affordance to choose team mode.
-- Improve timeline grouping by task ID.
+### Phase 2：前端最小可视化
 
-Phase 3:
+- 增加 team mode 请求参数。
+- 增加 task/timeline 类型。
+- 按 task_id 聚合工具事件。
+- 在 plan panel 或 timeline 展示 worker、profile、task status、review/retry。
 
-- Add RemoteA2AAgent scheduling through AgentRegistry.
-- Add richer DAG visualization.
-- Add more granular locks and tool safety metadata.
+### Phase 3：增强能力
 
-## Testing Strategy
+- A2A RemoteAgent 调度。
+- AgentRegistry。
+- 更完整 DAG 可视化。
+- 更细粒度资源锁。
+- 工具副作用元数据。
+- HITL 审批。
 
-Backend unit tests:
+## 测试策略
 
-- TaskGraph validation rejects missing dependencies.
-- TaskGraph validation rejects cycles.
-- Tool policy maps profiles to allowed tools.
-- WorkerAgent exposes only allowed tools.
-- Runtime tool call outside allowed tools is rejected.
-- Orchestrator identifies ready tasks correctly.
-- Orchestrator runs safe ready tasks concurrently with bounded max workers.
-- Orchestrator serializes browser/file_write/shell profiles.
-- Reviewer rejection causes retry.
-- Retry exhaustion marks task failed.
-- Failed dependency marks downstream task skipped.
-- ToolEvent metadata includes task and agent identity.
-- Event mapper converts new events to SSE events.
+后端单元测试：
 
-Backend integration tests:
+- TaskGraph 校验拒绝不存在的 dependency。
+- TaskGraph 校验拒绝有环图。
+- Tool policy 正确映射 profile 到 allowed tools。
+- WorkerAgent 只暴露 allowed tools。
+- 运行时调用未授权工具会被拒绝。
+- Orchestrator 能正确识别 ready tasks。
+- Orchestrator 能在 max_workers 限制下并行执行安全任务。
+- Orchestrator 会串行执行 browser/file_write/shell。
+- Reviewer 拒绝会触发 retry。
+- retry 超限会将 task 标记为 failed。
+- dependency failed 会让下游 task skipped。
+- ToolEvent 会携带 task_id 和 agent_id。
+- EventMapper 能把新增事件转换为 SSE。
 
-- Team mode request produces task graph, task events, review events, message event, and done event.
-- React mode still uses existing PlannerReActFlow.
-- Team mode disabled returns an ErrorEvent and does not execute workers.
+后端集成测试：
 
-Frontend tests:
+- team mode 请求会产生 task_graph、task、task_review、message、done 事件。
+- react mode 仍然使用现有 PlannerReActFlow。
+- team_enabled=false 时，请求 team mode 返回 ErrorEvent 且不执行 worker。
 
-- New SSE event types normalize correctly.
-- Tool events with `task_id` attach to the matching task.
-- Legacy tool events still use previous fallback grouping.
-- Task timeline renders status, worker ID, profile, and retry count.
+前端测试：
 
-## Acceptance Criteria
+- 新 SSE 事件类型能 normalize。
+- 带 `task_id` 的 ToolEvent 会挂到对应 task。
+- 没有 `task_id` 的旧 ToolEvent 仍使用 fallback 逻辑。
+- task timeline 能展示 status、worker ID、profile、retry count。
 
-- Existing react mode behavior remains unchanged.
-- A team-mode request can create a task graph and execute at least two independent read-only/research tasks in parallel.
-- Serialized profiles do not run concurrently.
-- Every worker-emitted tool event includes `task_id` and `agent_id`.
-- Reviewer rejection triggers a retry up to configured limit.
-- Final response summarizes completed, failed, and skipped tasks.
-- Session detail reload shows persisted team events correctly.
-- The feature can be disabled through `team_enabled`.
+## 验收标准
+
+- 现有 react mode 行为不变。
+- team mode 能创建 TaskGraph。
+- 至少两个相互独立的 `research` 或 `file_read` task 可以并行执行。
+- `browser`、`file_write`、`shell` task 不会并行执行。
+- Worker 产生的 ToolEvent 都包含 `task_id` 和 `agent_id`。
+- Reviewer 拒绝后会按配置触发 retry。
+- 最终回复能说明 completed、failed、skipped tasks。
+- 刷新 session detail 后，已持久化的 team events 能正确展示。
+- `team_enabled=false` 时功能可以关闭。
 
