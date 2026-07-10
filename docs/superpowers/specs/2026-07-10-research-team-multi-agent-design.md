@@ -23,6 +23,8 @@ mooc-manus 将新增一个与现有 `PlannerReActFlow` 并列的 `ResearchTeamFl
 
 首期在现有 FastAPI 进程内使用 `asyncio` 受控并发。Agent Registry、自动模式选择、远程 A2A Worker、跨进程恢复和分布式调度属于后续独立项目。
 
+首期部署约束为单个 API 进程。多进程或多副本会使进程内 Task Registry、Coroutine 取消和 Run 所有权失去一致性，必须等 Phase 2 引入租约、Checkpoint 与 Durable Executor 后再开放。
+
 ## 2. 背景与目标
 
 ### 2.1 当前状态
@@ -481,6 +483,7 @@ plan_version
 budget_snapshot
 usage
 error
+heartbeat_at
 started_at
 finished_at
 created_at
@@ -712,12 +715,16 @@ analysis          -> no tools
 
 ### 8.4 事件汇聚
 
-Worker 不直接写 Redis、Session Repository 或 SSE。每个 Worker 把 Domain Event 写入 Run 内部 `asyncio.Queue`，Orchestrator 单点消费并：
+Worker 不直接写 Redis、Session Repository 或 SSE。每个 Worker 把 Domain Event 写入 Run 内部 `asyncio.Queue`，Orchestrator 内的 EventSequencer 单点消费并：
 
 1. 分配递增 `sequence_no`。
-2. 持久化状态。
-3. 发布 Redis Output Stream。
-4. 生成 Session Event 投影。
+2. 在对应状态事务已经提交后，把有序 Event 交给 Flow 输出。
+
+`AgentTaskRunner` 作为应用层唯一 Event Sink，顺序执行：
+
+1. 发布 Redis Output Stream。
+2. 生成 Session Event 投影。
+3. 更新会话标题、最新消息和未读状态等兼容字段。
 
 这避免并发 UoW 使用、乱序写入和前端归属错误。
 
@@ -1009,13 +1016,15 @@ POST /api/sessions/{session_id}/runs/{run_id}/cancel
 
 ### 13.4 活跃 Run 冲突
 
-首期每个 Session 同一时间只允许一个活跃 Run。运行中再次提交普通消息返回：
+首期每个 Session 同一时间只允许一个活跃 `research_team` Run。活跃研究运行期间提交任何新消息，或者在现有 React 任务运行期间尝试切换到 `research_team`，返回：
 
 ```text
 409 RUN_ALREADY_ACTIVE
 ```
 
 响应包含当前 `run_id` 和状态。UI 提供等待或取消选项，不隐式停止当前研究。
+
+现有 `react` 模式在运行中接收新的 `react` 消息时，继续保留当前回滚与重新规划行为，避免破坏默认模式兼容性。任何模式切换都只能在当前任务进入终态后发生。
 
 ## 14. 前端设计
 
@@ -1404,6 +1413,7 @@ React Mode 无行为回归
 ## 21. 验收标准
 
 - `mode` 默认为 `react`，现有行为不变。
+- React 到 React 的运行中追加消息保持现有行为；活跃 Team Run 和运行中模式切换稳定返回 409。
 - 用户可以显式选择 `research_team`。
 - Research Planner 能生成并通过校验的 DAG。
 - 至少两个无依赖研究 Task 能在并发上限内同时运行。
@@ -1419,6 +1429,7 @@ React Mode 无行为回归
 - Worker 失败时系统能生成诚实的 Partial 或明确 Failed。
 - Cancel、Timeout 和 Budget Exhausted 都有稳定终态。
 - 质量评测达到第 19.3 节门槛。
+- 首期部署文档明确限制为单 API 进程，不宣称支持多进程恢复或调度。
 
 ## 22. 主要风险与缓解
 
