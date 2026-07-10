@@ -43,6 +43,14 @@ class BaseEvent(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))  # 事件id
     type: Literal[""] = ""  # 事件的类型
     created_at: datetime = Field(default_factory=datetime.now)  # 事件创建时间
+    schema_version: str = "1.0"
+    session_id: Optional[str] = None
+    run_id: Optional[str] = None
+    task_id: Optional[str] = None
+    attempt_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    parent_event_id: Optional[str] = None
+    sequence_no: Optional[int] = None
 
 
 class PlanEvent(BaseEvent):
@@ -123,6 +131,15 @@ class ToolEvent(BaseEvent):
     function_args: Dict[str, Any]  # LLM生成的工具调用参数
     function_result: Optional[ToolResult] = None  # 工具调用结果
     status: ToolEventStatus = ToolEventStatus.CALLING  # 工具事件状态
+    agent_profile: Optional[str] = None
+
+
+class ResearchUsageEvent(BaseEvent):
+    """研究运行的预算使用快照。"""
+    type: Literal["research_usage"] = "research_usage"
+    budget: Dict[str, Any] = Field(default_factory=dict)
+    usage: Dict[str, Any] = Field(default_factory=dict)
+    remaining: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WaitEvent(BaseEvent):
@@ -149,6 +166,7 @@ Event = Annotated[
         StepEvent,
         MessageEvent,
         ToolEvent,
+        ResearchUsageEvent,
         WaitEvent,
         ErrorEvent,
         DoneEvent,
