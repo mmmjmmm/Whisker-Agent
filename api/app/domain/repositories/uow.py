@@ -9,6 +9,8 @@ from abc import ABC, abstractmethod
 from typing import TypeVar
 
 from .file_repository import FileRepository
+from .agent_run_repository import AgentRunRepository
+from .research_repository import ResearchRepository
 from .session_repository import SessionRepository
 
 T = TypeVar("T", bound="IUnitOfWork")
@@ -18,6 +20,8 @@ class IUnitOfWork(ABC):
     """Uow模式协议接口"""
     file: FileRepository
     session: SessionRepository
+    agent_run: AgentRunRepository
+    research: ResearchRepository
 
     @abstractmethod
     async def commit(self):

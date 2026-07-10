@@ -7,6 +7,30 @@
 """
 from .base import Base
 from .file import FileModel
+from .agent_run import (
+    AgentRunModel,
+    AgentTaskAttemptModel,
+    AgentTaskDependencyModel,
+    AgentTaskModel,
+)
+from .research import (
+    ClaimEvidenceModel,
+    EvidenceExcerptModel,
+    ResearchClaimModel,
+    ResearchSourceModel,
+)
 from .session import SessionModel
 
-__all__ = ["Base", "SessionModel", "FileModel"]
+__all__ = [
+    "Base",
+    "SessionModel",
+    "FileModel",
+    "AgentRunModel",
+    "AgentTaskModel",
+    "AgentTaskDependencyModel",
+    "AgentTaskAttemptModel",
+    "ResearchSourceModel",
+    "EvidenceExcerptModel",
+    "ResearchClaimModel",
+    "ClaimEvidenceModel",
+]
