@@ -19,6 +19,10 @@ from app.domain.models.memory import Memory
 from app.domain.models.message import Message
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.uow import IUnitOfWork
+from app.domain.services.research.memory_store import (
+    AgentMemoryStore,
+    SessionMemoryStore,
+)
 from app.domain.services.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,8 @@ class BaseAgent(ABC):
             llm: LLM,  # 语言模型协议
             json_parser: JSONParser,  # JSON输出解析器
             tools: List[BaseTool],  # 工具列表
+            memory_store: AgentMemoryStore | None = None,
+            memory_key: str | None = None,
     ) -> None:
         """构造函数，完成Agent的初始化"""
         self._uow_factory = uow_factory
@@ -50,12 +56,16 @@ class BaseAgent(ABC):
         self._memory: Optional[Memory] = None
         self._json_parser = json_parser
         self._tools = tools
+        self._memory_store = memory_store or SessionMemoryStore(
+            uow_factory=uow_factory,
+            session_id=session_id,
+        )
+        self._memory_key = memory_key or self.name
 
     async def _ensure_memory(self) -> None:
         """确保智能体记忆是存在的"""
         if self._memory is None:
-            async with self._uow:
-                self._memory = await self._uow.session.get_memory(self._session_id, self.name)
+            self._memory = await self._memory_store.load(self._memory_key)
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
         """获取Agent所有可用的工具列表参数声明/Schema"""
@@ -161,15 +171,13 @@ class BaseAgent(ABC):
         self._memory.add_messages(messages)
 
         # 4.将记忆持久化到数据仓库中
-        async with self._uow:
-            await self._uow.session.save_memory(self._session_id, self.name, self._memory)
+        await self._memory_store.save(self._memory_key, self._memory)
 
     async def compact_memory(self) -> None:
         """压缩Agent的记忆"""
         await self._ensure_memory()
         self._memory.compact()
-        async with self._uow:
-            await self._uow.session.save_memory(self._session_id, self.name, self._memory)
+        await self._memory_store.save(self._memory_key, self._memory)
 
     async def roll_back(self, message: Message) -> None:
         """Agent的状态回滚，该函数用于确保Agent的消息列表状态是正确，用于发送新消息、暂停/停止任务、通知用户"""
@@ -203,8 +211,7 @@ class BaseAgent(ABC):
             self._memory.roll_back()
 
         # 6.将记忆持久化
-        async with self._uow:
-            await self._uow.session.save_memory(self._session_id, self.name, self._memory)
+        await self._memory_store.save(self._memory_key, self._memory)
 
     async def invoke(self, query: str, format: Optional[str] = None) -> AsyncGenerator[BaseEvent, None]:
         """传递消息+响应格式调用程序生成异步迭代内容"""
