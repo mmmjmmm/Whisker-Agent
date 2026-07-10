@@ -12,12 +12,30 @@ from fastapi import APIRouter, Depends, Body
 
 from app.application.services.app_config_service import AppConfigService
 from app.domain.models.app_config import LLMConfig, AgentConfig, MCPConfig
-from app.interfaces.schemas.app_config import ListMCPServerResponse, ListA2AServerResponse
+from app.interfaces.schemas.app_config import (
+    AppCapabilitiesResponse,
+    ListA2AServerResponse,
+    ListMCPServerResponse,
+)
 from app.interfaces.schemas.base import Response
 from app.interfaces.service_dependencies import get_app_config_service
+from core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/app-config", tags=["设置模块"])
+
+
+@router.get(
+    path="/capabilities",
+    response_model=Response[AppCapabilitiesResponse],
+    summary="获取客户端可用能力",
+)
+async def get_capabilities(
+        settings: Settings = Depends(get_settings),
+) -> Response[AppCapabilitiesResponse]:
+    return Response.success(data=AppCapabilitiesResponse(
+        research_team=settings.research_team_enabled,
+    ))
 
 
 @router.get(

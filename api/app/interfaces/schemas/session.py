@@ -6,10 +6,11 @@
 @File    : session.py
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+from app.domain.models.agent_run import AgentMode
 from app.domain.models.file import File
 from app.domain.models.session import SessionStatus
 from app.interfaces.schemas.event import AgentSSEEvent
@@ -38,9 +39,11 @@ class ListSessionResponse(BaseModel):
 class ChatRequest(BaseModel):
     """聊天请求结构"""
     message: Optional[str] = None  # 人类消息
-    attachments: Optional[List[str]] = Field(default_factory=list)  # 附件列表(传递的是文件id列表)
+    attachments: List[str] = Field(default_factory=list)  # 附件列表(传递的是文件id列表)
     event_id: Optional[str] = None  # 最新事件id
     timestamp: Optional[int] = None  # 当前时间戳
+    mode: AgentMode = AgentMode.REACT
+    budget_profile: Literal["default"] = "default"
 
 
 class GetSessionResponse(BaseModel):

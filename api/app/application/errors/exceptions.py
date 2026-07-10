@@ -59,3 +59,31 @@ class ServerRequestsError(AppException):
 
     def __init__(self, msg: str = "服务器出现异常请稍后重试"):
         super().__init__(status_code=500, code=500, msg=msg)
+
+
+class RunAlreadyActiveError(AppException):
+    """会话中已存在不允许并行或切换的运行。"""
+
+    def __init__(self, run_id: str, status: str) -> None:
+        super().__init__(
+            status_code=409,
+            code=409,
+            msg="当前会话已有运行中的任务",
+            data={
+                "error_code": "RUN_ALREADY_ACTIVE",
+                "run_id": run_id,
+                "status": status,
+            },
+        )
+
+
+class ResearchTeamDisabledError(AppException):
+    """研究团队能力尚未在当前环境开放。"""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=403,
+            code=403,
+            msg="研究团队模式尚未开放",
+            data={"error_code": "RESEARCH_TEAM_DISABLED"},
+        )

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     env: str = "development"
     log_level: str = "INFO"
     app_config_filepath: str = "config.yaml"
+    research_team_enabled: bool = False
 
     # 数据库相关配置
     sqlalchemy_database_uri: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/manus"
