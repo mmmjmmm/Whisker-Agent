@@ -28,7 +28,7 @@ from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
-from .base import BaseFlow, FlowStatus
+from .base import BaseFlow, FlowRequest, FlowResourceRequirements, FlowStatus
 from ...repositories.uow import IUnitOfWork
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 
 class PlannerReActFlow(BaseFlow):
     """规划与执行流"""
+    resource_requirements = FlowResourceRequirements(
+        sandbox=True,
+        browser=True,
+        mcp=True,
+        a2a=True,
+    )
 
     def __init__(
             self,
@@ -91,8 +97,9 @@ class PlannerReActFlow(BaseFlow):
         )
         logger.debug(f"创建执行Agent成功, 会话id: {self._session_id}")
 
-    async def invoke(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
+    async def invoke(self, request: FlowRequest) -> AsyncGenerator[BaseEvent, None]:
         """传递消息，运行流，在六中调用planner&react智能体组合完成任务并返回对应事件"""
+        message = request.message
         # 1.调用会话仓库查询会话是否存在
         async with self._uow:
             session = await self._uow.session.get_by_id(self._session_id)

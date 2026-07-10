@@ -9,8 +9,11 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import AsyncGenerator
 
+from pydantic import BaseModel
+
 from app.domain.models.event import BaseEvent
 from app.domain.models.message import Message
+from app.domain.models.run_command import StartRunCommand
 
 
 class FlowStatus(str, Enum):
@@ -23,11 +26,24 @@ class FlowStatus(str, Enum):
     COMPLETED = "completed"  # 已完成
 
 
+class FlowRequest(BaseModel):
+    command: StartRunCommand
+    message: Message
+
+
+class FlowResourceRequirements(BaseModel):
+    sandbox: bool = False
+    browser: bool = False
+    mcp: bool = False
+    a2a: bool = False
+
+
 class BaseFlow(ABC):
     """基础流抽象类"""
+    resource_requirements = FlowResourceRequirements()
 
     @abstractmethod
-    async def invoke(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
+    async def invoke(self, request: FlowRequest) -> AsyncGenerator[BaseEvent, None]:
         """流调用函数，返回可迭代的基础事件"""
         ...
 

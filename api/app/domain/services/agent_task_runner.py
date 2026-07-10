@@ -12,7 +12,7 @@ import uuid
 from typing import List, AsyncGenerator, Callable, BinaryIO
 
 from fastapi import UploadFile
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from app.domain.external.browser import Browser
 from app.domain.external.file_storage import FileStorage
@@ -22,21 +22,32 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import TaskRunner, Task
 from app.domain.models.app_config import AgentConfig, MCPConfig, A2AConfig
+from app.domain.models.agent_run import AgentMode
 from app.domain.models.event import ErrorEvent, Event, MessageEvent, BaseEvent, ToolEvent, ToolEventStatus, \
     BrowserToolContent, SearchToolContent, ShellToolContent, FileToolContent, MCPToolContent, A2AToolContent, \
     TitleEvent, WaitEvent, DoneEvent
 from app.domain.models.file import File
 from app.domain.models.message import Message
+from app.domain.models.run_command import (
+    CancelRunCommand,
+    RunCommand,
+    StartRunCommand,
+)
 from app.domain.models.search import SearchResults
 from app.domain.models.session import SessionStatus
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.uow import IUnitOfWork
+from app.domain.services.flows.base import BaseFlow, FlowRequest
+from app.domain.services.flows.flow_router import FlowRouter
 from app.domain.services.flows.planner_react import PlannerReActFlow
 from app.domain.services.tools.a2a import A2ATool
 from app.domain.services.tools.mcp import MCPTool
 from app.infrastructure.storage.oss import get_oss
 
 logger = logging.getLogger(__name__)
+
+RUN_COMMAND_ADAPTER = TypeAdapter(RunCommand)
+EVENT_ADAPTER = TypeAdapter(Event)
 
 
 class AgentTaskRunner(TaskRunner):
@@ -55,6 +66,10 @@ class AgentTaskRunner(TaskRunner):
             browser: Browser,  # 浏览器
             search_engine: SearchEngine,  # 搜索引擎
             sandbox: Sandbox,  # 沙箱
+            flow_router: FlowRouter | None = None,
+            research_flow_factory: Callable[[], BaseFlow] | None = None,
+            mcp_tool: MCPTool | None = None,
+            a2a_tool: A2ATool | None = None,
     ) -> None:
         """构造函数，完成Agent任务运行器的创建"""
         self._uow_factory = uow_factory
@@ -62,22 +77,38 @@ class AgentTaskRunner(TaskRunner):
         self._session_id = session_id
         self._sandbox = sandbox
         self._mcp_config = mcp_config
-        self._mcp_tool = MCPTool()
+        self._mcp_tool = mcp_tool or MCPTool()
         self._a2a_config = a2a_config
-        self._a2a_tool = A2ATool()
+        self._a2a_tool = a2a_tool or A2ATool()
         self._file_storage = file_storage
         self._browser = browser
-        self._flow = PlannerReActFlow(
-            uow_factory=uow_factory,
-            llm=llm,
-            agent_config=agent_config,
-            session_id=session_id,
-            json_parser=json_parser,
-            browser=browser,
-            sandbox=sandbox,
-            search_engine=search_engine,
-            mcp_tool=self._mcp_tool,
-            a2a_tool=self._a2a_tool,
+        self._flows: dict[AgentMode, BaseFlow] = {}
+        self._sandbox_initialized = False
+        self._mcp_initialized = False
+        self._a2a_initialized = False
+
+        def create_react_flow() -> BaseFlow:
+            if self._browser is None or self._sandbox is None:
+                raise RuntimeError("React Flow 需要 Browser 和 Sandbox")
+            return PlannerReActFlow(
+                uow_factory=uow_factory,
+                llm=llm,
+                agent_config=agent_config,
+                session_id=session_id,
+                json_parser=json_parser,
+                browser=self._browser,
+                sandbox=self._sandbox,
+                search_engine=search_engine,
+                mcp_tool=self._mcp_tool,
+                a2a_tool=self._a2a_tool,
+            )
+
+        def research_not_configured() -> BaseFlow:
+            raise RuntimeError("ResearchTeamFlow 尚未配置")
+
+        self._flow_router = flow_router or FlowRouter(
+            react_factory=create_react_flow,
+            research_factory=research_flow_factory or research_not_configured,
         )
 
     async def _put_and_add_event(self, task: Task, event: Event) -> None:
@@ -90,20 +121,37 @@ class AgentTaskRunner(TaskRunner):
         async with self._uow:
             await self._uow.session.add_event(self._session_id, event)
 
-    @classmethod
-    async def _pop_event(cls, task: Task) -> Event:
-        """从任务的输入流中获取事件信息"""
-        # 1.从任务task中读取数据
+    async def _pop_command(
+            self,
+            task: Task,
+    ) -> tuple[StartRunCommand | CancelRunCommand | None, MessageEvent | None]:
+        """优先读取 RunCommand，并兼容历史 MessageEvent 输入。"""
         event_id, event_str = await task.input_stream.pop()
         if event_str is None:
-            logger.warning(f"AgentTaskRunner接收到空消息")
-            return
+            logger.warning("AgentTaskRunner接收到空消息")
+            return None, None
 
-        # 2.使用pydantic+type类型将字符串转换成事件
-        event = TypeAdapter(Event).validate_json(event_str)
-        event.id = event_id
+        try:
+            command = RUN_COMMAND_ADAPTER.validate_json(event_str)
+        except ValidationError:
+            event = EVENT_ADAPTER.validate_json(event_str)
+            event.id = event_id
+            if not isinstance(event, MessageEvent):
+                raise ValueError(f"不支持的历史输入事件: {event.type}")
+            if not event.message:
+                return None, event
+            command = StartRunCommand(
+                run_id=str(uuid.uuid4()),
+                session_id=self._session_id,
+                mode=AgentMode.REACT,
+                message=event.message,
+                attachment_ids=[attachment.id for attachment in event.attachments],
+            )
+            return command, event
 
-        return event
+        if command.session_id != self._session_id:
+            raise ValueError("命令的 session_id 与 Runner 不匹配")
+        return command, None
 
     async def _sync_file_to_sandbox(self, file_id: str) -> File:
         """根据文件id将文件同步到沙箱中"""
@@ -312,24 +360,85 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.exception(f"AgentTaskRunner生成工具内容失败: {str(e)}")
 
-    async def _run_flow(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
-        """根据消息对象运行PlannerReActFlow"""
-        # 1.判断传递的消息是否为空
-        if not message.message:
-            logger.warning(f"AgentTaskRunner接收了一条空消息")
+    async def _ensure_flow_resources(self, mode: AgentMode) -> None:
+        requirements = self._flow_router.requirements_for(mode)
+        if requirements.sandbox and not self._sandbox_initialized:
+            if self._sandbox is None:
+                raise RuntimeError("React Flow 需要 Sandbox")
+            await self._sandbox.ensure_sandbox()
+            self._sandbox_initialized = True
+        if requirements.browser and self._browser is None:
+            raise RuntimeError("React Flow 需要 Browser")
+        if requirements.mcp and not self._mcp_initialized:
+            await self._mcp_tool.initialize(self._mcp_config)
+            self._mcp_initialized = True
+        if requirements.a2a and not self._a2a_initialized:
+            await self._a2a_tool.initialize(self._a2a_config)
+            self._a2a_initialized = True
+
+    async def _build_flow_request(
+            self,
+            command: StartRunCommand,
+            legacy_event: MessageEvent | None,
+    ) -> FlowRequest:
+        attachments: list[str] = []
+        if command.mode == AgentMode.REACT:
+            if legacy_event is not None:
+                await self._sync_message_attachments_to_sandbox(legacy_event)
+                attachments = [
+                    attachment.filepath
+                    for attachment in legacy_event.attachments
+                    if attachment.filepath
+                ]
+            else:
+                for file_id in command.attachment_ids:
+                    file = await self._sync_file_to_sandbox(file_id)
+                    if file is not None and file.filepath:
+                        attachments.append(file.filepath)
+                        async with self._uow:
+                            await self._uow.session.add_file(
+                                self._session_id,
+                                file,
+                            )
+        else:
+            attachments = list(command.attachment_ids)
+
+        return FlowRequest(
+            command=command,
+            message=Message(
+                message=command.message,
+                attachments=attachments,
+            ),
+        )
+
+    def _get_flow(self, mode: AgentMode) -> BaseFlow:
+        flow = self._flows.get(mode)
+        if flow is None:
+            flow = self._flow_router.create(mode)
+            self._flows[mode] = flow
+        return flow
+
+    async def _run_flow(
+            self,
+            request: FlowRequest,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        if not request.message.message:
+            logger.warning("AgentTaskRunner接收了一条空消息")
             yield ErrorEvent(error="空消息错误")
             return
 
-        # 2.调用流并运行获取事件信息
-        async for event in self._flow.invoke(message):
-            # 3.判断是否为工具事件，如果是则额外处理
-            if isinstance(event, ToolEvent):
+        flow = self._get_flow(request.command.mode)
+        async for event in flow.invoke(request):
+            if (
+                request.command.mode == AgentMode.REACT
+                and isinstance(event, ToolEvent)
+            ):
                 await self._handle_tool_event(event)
-            elif isinstance(event, MessageEvent):
-                # 4.如果是消息事件则将AI消息事件中的附件同步到存储中
+            elif (
+                request.command.mode == AgentMode.REACT
+                and isinstance(event, MessageEvent)
+            ):
                 await self._sync_message_attachments_to_storage(event)
-
-            # 5.将事件直接返回
             yield event
 
     async def _cleanup_tools(self) -> None:
@@ -339,92 +448,132 @@ class AgentTaskRunner(TaskRunner):
         否则anyio的cancel scope会检测到任务上下文切换并抛出RuntimeError。
         """
         try:
-            if self._mcp_tool:
+            if self._mcp_initialized:
                 await self._mcp_tool.cleanup()
+                self._mcp_initialized = False
         except Exception as e:
             logger.warning(f"清理MCP工具资源时出错: {e}")
         try:
-            if self._a2a_tool:
+            if self._a2a_initialized:
                 await self._a2a_tool.manager.cleanup()
+                self._a2a_initialized = False
         except Exception as e:
             logger.warning(f"清理A2A工具资源时出错: {e}")
 
+    async def _project_session_event(self, event: BaseEvent) -> bool:
+        if isinstance(event, TitleEvent):
+            async with self._uow:
+                await self._uow.session.update_title(
+                    self._session_id,
+                    event.title,
+                )
+        elif isinstance(event, MessageEvent):
+            async with self._uow:
+                await self._uow.session.update_latest_message(
+                    self._session_id,
+                    event.message,
+                    event.created_at,
+                )
+                await self._uow.session.increment_unread_message_count(
+                    self._session_id,
+                )
+        elif isinstance(event, WaitEvent):
+            async with self._uow:
+                await self._uow.session.update_status(
+                    self._session_id,
+                    SessionStatus.WAITING,
+                )
+            return True
+        return False
+
     async def invoke(self, task: Task) -> None:
         """根据传递的任务处理agent消息队列并运行agent流"""
+        done_published = False
         try:
-            # 1.确保沙箱、mcp、a2a均初始化完成
-            logger.info(f"AgentTaskRunner任务处理开始")
-            await self._sandbox.ensure_sandbox()
-            await self._mcp_tool.initialize(self._mcp_config)
-            await self._a2a_tool.initialize(self._a2a_config)
-
-            # 2.循环读取任务中的输入消息队列
+            logger.info("AgentTaskRunner任务处理开始")
             while not await task.input_stream.is_empty():
-                # 3.从输入流中获取数据
-                event = await self._pop_event(task)
-                message = ""
+                command, legacy_event = await self._pop_command(task)
+                if command is None:
+                    await self._put_and_add_event(
+                        task,
+                        ErrorEvent(
+                            session_id=self._session_id,
+                            error="空消息错误",
+                        ),
+                    )
+                    continue
+                if isinstance(command, CancelRunCommand):
+                    if not done_published:
+                        await self._put_and_add_event(
+                            task,
+                            DoneEvent(session_id=self._session_id),
+                        )
+                        done_published = True
+                    break
 
-                # 4.判断事件类型是否为消息事件，如果是则处理消息并将附件同步到沙箱中
-                if isinstance(event, MessageEvent):
-                    message = event.message or ""
-                    await self._sync_message_attachments_to_sandbox(event)
-                    logger.info(f"AgentTaskRunner接收到新消息: {message[:50]}...")
-
-                # 5.将消息事件转换称消息对象
-                message_obj = Message(
-                    message=message,
-                    attachments=[attachment.filepath for attachment in event.attachments]
+                logger.info(
+                    "AgentTaskRunner接收到%s模式消息: %s...",
+                    command.mode.value,
+                    command.message[:50],
+                )
+                await self._ensure_flow_resources(command.mode)
+                request = await self._build_flow_request(
+                    command,
+                    legacy_event,
                 )
 
-                # 6.传递消息对象并运行PlannerReActFlow
-                async for event in self._run_flow(message_obj):
-                    # 7.将得到的事件添加到消息队列中
+                async for event in self._run_flow(request):
                     await self._put_and_add_event(task, event)
-
-                    # 8.如果事件类型为标题事件则更新会话标题
-                    if isinstance(event, TitleEvent):
-                        async with self._uow:
-                            await self._uow.session.update_title(self._session_id, event.title)
-                    elif isinstance(event, MessageEvent):
-                        # 9.如果事件为消息事件，则更新最新消息并新增未读消息数
-                        async with self._uow:
-                            await self._uow.session.update_latest_message(
-                                self._session_id,
-                                event.message,
-                                event.created_at,
-                            )
-                            await self._uow.session.increment_unread_message_count(self._session_id)
-                    elif isinstance(event, WaitEvent):
-                        # 10.如果事件为等待，则更新会话状态并终止程序
-                        async with self._uow:
-                            await self._uow.session.update_status(self._session_id, SessionStatus.WAITING)
+                    if isinstance(event, DoneEvent):
+                        done_published = True
+                    if await self._project_session_event(event):
                         return
-
-                    # 11.判断如果输入消息队列为空则跳出循环
-                    if not await task.input_stream.is_empty():
+                    if (
+                        command.mode == AgentMode.REACT
+                        and not await task.input_stream.is_empty()
+                    ):
                         break
 
-            # 12.更新会话状态为已完成
             async with self._uow:
-                await self._uow.session.update_status(self._session_id, SessionStatus.COMPLETED)
+                await self._uow.session.update_status(
+                    self._session_id,
+                    SessionStatus.COMPLETED,
+                )
         except asyncio.CancelledError:
-            # 13.异步任务被取消，推送结束事件并跟新状态
-            logger.info(f"AgentTaskRunner任务运行取消")
-            await self._put_and_add_event(task, DoneEvent())
+            logger.info("AgentTaskRunner任务运行取消")
+            if not done_published:
+                await self._put_and_add_event(
+                    task,
+                    DoneEvent(session_id=self._session_id),
+                )
+                done_published = True
             async with self._uow:
-                await self._uow.session.update_status(self._session_id, SessionStatus.COMPLETED)
+                await self._uow.session.update_status(
+                    self._session_id,
+                    SessionStatus.COMPLETED,
+                )
             raise
         except Exception as e:
-            # 14.记录日志并往任务队列/消息队列中写入异常事件并更新会话状态
             logger.exception(f"AgentTaskRunner运行出错: {str(e)}")
-            await self._put_and_add_event(task, ErrorEvent(error=f"AgentTaskRunner出错: {str(e)}"))
+            await self._put_and_add_event(
+                task,
+                ErrorEvent(
+                    session_id=self._session_id,
+                    error=f"AgentTaskRunner出错: {str(e)}",
+                ),
+            )
+            if not done_published:
+                await self._put_and_add_event(
+                    task,
+                    DoneEvent(session_id=self._session_id),
+                )
+                done_published = True
             async with self._uow:
-                await self._uow.session.update_status(self._session_id, SessionStatus.COMPLETED)
+                await self._uow.session.update_status(
+                    self._session_id,
+                    SessionStatus.COMPLETED,
+                )
         finally:
-            # 15.在同一个asyncio Task上下文中清理MCP/A2A工具资源
-            # 这是关键：streamablehttp_client内部使用anyio.create_task_group()，
-            # 要求在同一个Task中进入和退出cancel scope，
-            # 所以必须在invoke()的finally块（即初始化MCP的同一个Task）中清理
             await self._cleanup_tools()
 
     async def destroy(self) -> None:
