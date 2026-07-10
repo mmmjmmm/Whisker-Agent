@@ -13,7 +13,9 @@ from typing import Literal, List, Union, Optional, Any, Dict, Annotated
 from pydantic import BaseModel, Field
 
 from .file import File
+from .agent_run import AgentTask, RunStatus, TaskStatus
 from .plan import Plan, Step
+from .research import ResearchPlan, ResearchSource, ReviewResult
 from .search import SearchResultItem
 from .tool_result import ToolResult
 
@@ -142,6 +144,36 @@ class ResearchUsageEvent(BaseEvent):
     remaining: Dict[str, Any] = Field(default_factory=dict)
 
 
+class RunEvent(BaseEvent):
+    type: Literal["run"] = "run"
+    status: RunStatus
+    goal: str = ""
+    usage: Dict[str, Any] = Field(default_factory=dict)
+    error: Optional[Dict[str, Any]] = None
+
+
+class ResearchPlanEvent(BaseEvent):
+    type: Literal["research_plan"] = "research_plan"
+    plan: ResearchPlan
+    status: str = "created"
+
+
+class ResearchTaskEvent(BaseEvent):
+    type: Literal["research_task"] = "research_task"
+    task: AgentTask
+    status: TaskStatus
+
+
+class ResearchSourceEvent(BaseEvent):
+    type: Literal["research_source"] = "research_source"
+    source: ResearchSource
+
+
+class ResearchReviewEvent(BaseEvent):
+    type: Literal["research_review"] = "research_review"
+    review: ReviewResult
+
+
 class WaitEvent(BaseEvent):
     """等待事件，等待用户输入确认"""
     type: Literal["wait"] = "wait"
@@ -166,6 +198,11 @@ Event = Annotated[
         StepEvent,
         MessageEvent,
         ToolEvent,
+        RunEvent,
+        ResearchPlanEvent,
+        ResearchTaskEvent,
+        ResearchSourceEvent,
+        ResearchReviewEvent,
         ResearchUsageEvent,
         WaitEvent,
         ErrorEvent,

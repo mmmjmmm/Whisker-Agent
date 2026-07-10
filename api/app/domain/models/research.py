@@ -5,7 +5,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.domain.models.agent_run import AgentTask, CapabilityProfile, utc_now
+from app.domain.models.agent_run import (
+    AgentTask,
+    CapabilityProfile,
+    RunStatus,
+    TaskStatus,
+    utc_now,
+)
 
 
 class SourceStrategy(BaseModel):
@@ -192,3 +198,10 @@ class AttachmentIngestResult(BaseModel):
     sources: list[ResearchSource] = Field(default_factory=list)
     evidence: list[EvidenceExcerpt] = Field(default_factory=list)
     issues: list[AttachmentIssue] = Field(default_factory=list)
+
+
+class OrchestrationResult(BaseModel):
+    run_status: RunStatus
+    status_by_key: dict[str, TaskStatus]
+    findings: list[NormalizedFinding] = Field(default_factory=list)
+    errors: dict[str, str] = Field(default_factory=dict)
