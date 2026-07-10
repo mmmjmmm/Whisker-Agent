@@ -166,3 +166,29 @@ class CitationCheck(BaseModel):
     status: ClaimSupportStatus
     reason: str
 
+
+class NormalizedFinding(BaseModel):
+    task_id: str
+    summary: str
+    sources: list[ResearchSource] = Field(default_factory=list)
+    evidence: list[EvidenceExcerpt] = Field(default_factory=list)
+    claims: list[ResearchClaim] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class CitationVerificationResult(BaseModel):
+    draft: DraftReport
+    checks: list[CitationCheck] = Field(default_factory=list)
+
+
+class AttachmentIssue(BaseModel):
+    file_id: str
+    code: str
+    message: str
+
+
+class AttachmentIngestResult(BaseModel):
+    sources: list[ResearchSource] = Field(default_factory=list)
+    evidence: list[EvidenceExcerpt] = Field(default_factory=list)
+    issues: list[AttachmentIssue] = Field(default_factory=list)
