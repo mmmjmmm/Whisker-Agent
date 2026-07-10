@@ -8,13 +8,41 @@
 import logging
 from typing import List, Dict, Any
 
-from openai import AsyncOpenAI
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    BadRequestError as OpenAIBadRequestError,
+    RateLimitError,
+)
 
 from app.application.errors.exceptions import ServerRequestsError
-from app.domain.external.llm import LLM
+from app.domain.external.llm import (
+    LLM,
+    LLMErrorKind,
+    LLMInvocationError,
+    LLMInvocationResult,
+    LLMUsage,
+)
 from app.domain.models.app_config import LLMConfig
 
 logger = logging.getLogger(__name__)
+
+
+def classify_openai_error(error: Exception) -> LLMInvocationError:
+    if isinstance(error, RateLimitError):
+        return LLMInvocationError(LLMErrorKind.RATE_LIMITED, str(error), True)
+    if isinstance(error, APITimeoutError):
+        return LLMInvocationError(LLMErrorKind.TIMEOUT, str(error), True)
+    if isinstance(error, APIConnectionError):
+        return LLMInvocationError(LLMErrorKind.CONNECTION, str(error), True)
+    if isinstance(error, OpenAIBadRequestError):
+        return LLMInvocationError(LLMErrorKind.INVALID_REQUEST, str(error), False)
+    if isinstance(error, APIStatusError):
+        retryable = getattr(error, "status_code", 500) >= 500
+        return LLMInvocationError(LLMErrorKind.PROVIDER, str(error), retryable)
+    return LLMInvocationError(LLMErrorKind.PROVIDER, str(error), False)
 
 
 class OpenAILLM(LLM):
@@ -54,9 +82,27 @@ class OpenAILLM(LLM):
             response_format: Dict[str, Any] = None,
             tool_choice: str = None,
     ) -> Dict[str, Any]:
-        """使用异步OpenAI客户端发起块响应（该步骤可以切换成流式响应）"""
+        """保留现有 Agent 使用的消息返回和错误类型。"""
         try:
-            # 1.检测是否传递了工具列表
+            result = await self.invoke_with_usage(
+                messages=messages,
+                tools=tools,
+                response_format=response_format,
+                tool_choice=tool_choice,
+            )
+            return result.message
+        except LLMInvocationError as exc:
+            raise ServerRequestsError("调用OpenAI客户端向LLM发起请求出错") from exc
+
+    async def invoke_with_usage(
+            self,
+            messages: List[Dict[str, Any]],
+            tools: List[Dict[str, Any]] = None,
+            response_format: Dict[str, Any] = None,
+            tool_choice: str = None,
+    ) -> LLMInvocationResult:
+        """调用 LLM 并返回结构化响应元数据，不记录完整模型响应。"""
+        try:
             if tools:
                 logger.info(f"调用OpenAI客户端向LLM发起请求并携带工具信息: {self._model_name}")
                 response = await self._client.chat.completions.create(
@@ -71,7 +117,6 @@ class OpenAILLM(LLM):
                     timeout=self._timeout,
                 )
             else:
-                # 2.为传递工具则删除tools/tool_choice等参数
                 logger.info(f"调用OpenAI客户端向LLM发起请求未携带: {self._model_name}")
                 response = await self._client.chat.completions.create(
                     model=self._model_name,
@@ -82,12 +127,36 @@ class OpenAILLM(LLM):
                     timeout=self._timeout,
                 )
 
-            # 3.处理响应数据并返回
-            logger.info(f"OpenAI客户端返回内容: {response.model_dump()}")
-            return response.choices[0].message.model_dump()
-        except Exception as e:
-            logger.error(f"调用OpenAI客户端发生错误: {str(e)}")
-            raise ServerRequestsError("调用OpenAI客户端向LLM发起请求出错")
+            choice = response.choices[0]
+            response_usage = response.usage
+            usage = LLMUsage(
+                input_tokens=getattr(response_usage, "prompt_tokens", 0) or 0,
+                output_tokens=getattr(response_usage, "completion_tokens", 0) or 0,
+                total_tokens=getattr(response_usage, "total_tokens", 0) or 0,
+            )
+            result = LLMInvocationResult(
+                message=choice.message.model_dump(),
+                model=self._model_name,
+                provider_request_id=getattr(response, "id", None),
+                finish_reason=getattr(choice, "finish_reason", None),
+                usage=usage,
+            )
+            logger.info(
+                "OpenAI客户端调用完成 model=%s request_id=%s finish_reason=%s total_tokens=%s",
+                result.model,
+                result.provider_request_id,
+                result.finish_reason,
+                result.usage.total_tokens,
+            )
+            return result
+        except Exception as exc:
+            classified = classify_openai_error(exc)
+            logger.error(
+                "调用OpenAI客户端发生错误 kind=%s retryable=%s",
+                classified.kind.value,
+                classified.retryable,
+            )
+            raise classified from exc
 
 
 if __name__ == "__main__":
