@@ -165,16 +165,9 @@ async def chat(
 ) -> EventSourceResponse:
     """根据传递的会话id+chat请求数据向指定会话发起聊天请求"""
 
-    prepared = await agent_service.prepare_chat(
-        session_id=session_id,
-        message=request.message,
-        attachments=request.attachments,
-        mode=request.mode,
-        timestamp=(
-            datetime.fromtimestamp(request.timestamp)
-            if request.timestamp
-            else None
-        ),
+    await agent_service.validate_chat_request(
+        session_id,
+        bool(request.message),
     )
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
@@ -187,7 +180,6 @@ async def chat(
                 latest_event_id=request.event_id,
                 timestamp=datetime.fromtimestamp(request.timestamp) if request.timestamp else None,
                 mode=request.mode,
-                prepared=prepared,
         ):
             # 2.将Agent事件转换为sse数据(因为普通的event没法通过流式事件传输)
             sse_event = EventMapper.event_to_sse_event(event)

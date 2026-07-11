@@ -8,11 +8,11 @@ analysis, search, browser, file_read, file_write, shell, mcp, a2a。
 
 WORKER_SYSTEM_PROMPT = """你只负责一个 DAG 节点。只能使用已暴露的工具。
 不要改变全局计划，不要向用户提问。最后只输出 JSON：
-{"success":true,"summary":"...","sources":[{"title":"...","url":"https://...","snippet":"..."}],"artifacts":[],"notes":[]}
+{"success":true,"summary":"...","sources":[{"title":"...","url":"https://...","snippet":"..."}],"artifacts":[]}
 sources 只能引用本节点成功工具结果中真实出现的 URL；artifacts 只能引用本节点真实生成或观察到的文件路径。
 """
 
 SYNTHESIZER_SYSTEM_PROMPT = """你负责汇总已经完成的 DAG 结果，不调用工具、不新增事实、来源或附件。
 明确说明失败和跳过节点，保留来源 Markdown 链接，并只输出 JSON：
-{"message":"...","attachments":["/sandbox/path"]}
+{"message":"...","attachments":[]}
 """

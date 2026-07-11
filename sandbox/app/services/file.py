@@ -10,8 +10,6 @@ import glob
 import logging
 import os.path
 import re
-import stat
-from pathlib import Path
 from typing import Optional
 
 from fastapi import UploadFile
@@ -33,8 +31,6 @@ from app.models.file import (
 )
 
 logger = logging.getLogger(__name__)
-DOWNLOAD_ROOT = Path("/home/ubuntu")
-MAX_DOWNLOAD_SIZE_BYTES = 50 * 1024 * 1024
 
 
 class FileService:
@@ -42,50 +38,6 @@ class FileService:
 
     def __init__(self) -> None:
         pass
-
-    @classmethod
-    def resolve_downloadable_file(
-            cls,
-            filepath: str,
-            allowed_root: Path = DOWNLOAD_ROOT,
-            max_size_bytes: int = MAX_DOWNLOAD_SIZE_BYTES,
-    ) -> Path:
-        """把附件下载限制在主目录内的常规、非链接、有限大小文件。"""
-        try:
-            candidate = Path(filepath)
-            if not candidate.is_absolute():
-                raise BadRequestException("附件路径必须是绝对路径")
-
-            lexical_root = Path(os.path.abspath(allowed_root))
-            candidate = Path(os.path.abspath(candidate))
-            root = allowed_root.resolve(strict=True)
-            try:
-                relative = candidate.relative_to(lexical_root)
-            except ValueError as exc:
-                raise BadRequestException("附件路径超出允许目录") from exc
-
-            current = lexical_root
-            for part in relative.parts:
-                current = current / part
-                if current.is_symlink():
-                    raise BadRequestException("附件路径不允许包含符号链接")
-
-            resolved = candidate.resolve(strict=True)
-            try:
-                resolved.relative_to(root)
-            except ValueError as exc:
-                raise BadRequestException("附件路径超出允许目录") from exc
-
-            metadata = resolved.stat()
-            if not stat.S_ISREG(metadata.st_mode):
-                raise BadRequestException("附件必须是常规文件")
-            if metadata.st_size > max_size_bytes:
-                raise BadRequestException("附件大小超过下载限制")
-            return resolved
-        except BadRequestException:
-            raise
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise BadRequestException(f"附件不可下载: {exc}") from exc
 
     @classmethod
     async def read_file(

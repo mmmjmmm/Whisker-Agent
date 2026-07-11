@@ -8,10 +8,8 @@ import {Avatar, AvatarGroupCount} from '@/components/ui/avatar'
 import {ArrowUp, FileText, Paperclip, XCircle, Loader2, Pause} from 'lucide-react'
 import {Button} from '@/components/ui/button'
 import {fileApi} from '@/lib/api/file'
-import type {FileInfo} from '@/lib/api/types'
+import type {AgentMode, FileInfo} from '@/lib/api/types'
 import {toast} from 'sonner'
-import {AgentModeSelector} from '@/components/agent-mode-selector'
-import type {AgentMode} from '@/lib/api/types'
 
 interface ChatInputProps {
   className?: string
@@ -234,11 +232,22 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
               <Paperclip/>
             )}
           </Button>
-          <AgentModeSelector
-            value={mode}
-            onChange={onModeChange}
-            disabled={isRunning || sending || disabled}
-          />
+          <div role="group" aria-label="Agent 模式" className="flex rounded-full border bg-gray-50 p-0.5">
+            {([['react', '单 Agent'], ['team', '多 Agent']] as const).map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={mode === value ? 'default' : 'ghost'}
+                className="h-8 rounded-full px-3 text-xs"
+                disabled={isRunning || sending || disabled}
+                onClick={() => onModeChange(value)}
+                aria-pressed={mode === value}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
         </div>
         {/* 发送/暂停按钮 */}
         <div className="flex gap-2">

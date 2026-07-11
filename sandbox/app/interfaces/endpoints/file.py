@@ -176,15 +176,15 @@ async def download_file(
         file_service: FileService = Depends(get_file_service),
 ) -> FileResponse:
     """根据传递的filepath下载指定的文件"""
-    # 1.解析并校验下载边界，拒绝越界、链接、特殊文件和超限文件
-    resolved = file_service.resolve_downloadable_file(filepath)
+    # 1.确保下当前文件存在
+    await file_service.ensure_file(filepath)
 
     # 2.提取文件名字
-    filename = os.path.basename(resolved)
+    filename = os.path.basename(filepath)
 
     # 3.返回文件下载响应
     return FileResponse(
-        path=resolved,
+        path=filepath,
         filename=filename,
         media_type="application/octet-stream",
     )

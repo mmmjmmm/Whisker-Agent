@@ -2,14 +2,6 @@
 
 MoocManus 是一个通用的 AI Agent 系统，支持完全私有化部署，使用 A2A + MCP 连接 Agent/Tool，同时支持在沙箱中运行各种内置工具和操作。
 
-## 多 Agent Team 模式
-
-聊天输入默认使用 `react` 单 Agent 模式；显式选择 `team` 才会启用动态 DAG 多 Agent 编排。Team 模式最多生成 5 个任务节点，同时运行不超过 3 个 Worker，每个失败节点最多重试 1 次。
-
-`analysis`、`search`、`file_read` 节点允许并行；Browser、FileWrite、Shell、MCP、A2A 节点在首期串行独占共享运行环境。Team 运行期间只允许停止，不接受追加消息。
-
-首期不支持 API 进程重启后的任务续跑；系统会在下次读取会话时把失联运行标记为失败。该功能不要求额外修改 `.env` 或 `api/config.yaml`。
-
 ## 项目结构
 
 ```

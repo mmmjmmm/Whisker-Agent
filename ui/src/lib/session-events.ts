@@ -15,7 +15,8 @@ import type {
   StepEvent,
   ToolEvent,
   SessionFile,
-  TaskGraph,
+  TeamTask,
+  ExecutionStatus,
 } from "@/lib/api/types";
 
 /** 后端返回的原始事件（可能用 event 或 type 表示类型） */
@@ -119,16 +120,57 @@ export function getToolTimeLabel(tool: ToolEvent): string | undefined {
   return formatTimeLabel(ts);
 }
 
+const TEAM_TASK_STATUS: Record<TeamTask["status"], ExecutionStatus> = {
+  pending: "pending",
+  running: "running",
+  retrying: "running",
+  completed: "completed",
+  failed: "failed",
+  skipped: "failed",
+  cancelled: "failed",
+};
+
+export function teamTaskStatusToExecutionStatus(
+  status: TeamTask["status"],
+): ExecutionStatus {
+  return TEAM_TASK_STATUS[status];
+}
+
 /**
  * 将 SSE 事件列表归并为时间线展示项（顺序与设计一致）
  */
 export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
   const list: TimelineItem[] = [];
+  const teamStepIndexes = new Map<string, number>();
   let lastStepId: string | null = null;
   let messageIndex = 0;
   let toolIndex = 0;
   let stepIndex = 0;
   let errorIndex = 0;
+
+  const upsertTeamStep = (graphId: string, task: TeamTask) => {
+    const key = `${graphId}:${task.id}`;
+    const data: StepEvent = {
+      id: key,
+      description: task.description,
+      status: teamTaskStatusToExecutionStatus(task.status),
+    };
+    const existingIndex = teamStepIndexes.get(key);
+    if (existingIndex === undefined) {
+      teamStepIndexes.set(key, list.length);
+      list.push({
+        kind: "step",
+        id: stableId("team-step", stepIndex++, key),
+        data,
+        tools: [],
+      });
+      return;
+    }
+    const existing = list[existingIndex];
+    if (existing.kind === "step") {
+      list[existingIndex] = { ...existing, data };
+    }
+  };
 
   for (const ev of events) {
     switch (ev.type) {
@@ -137,6 +179,7 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
         if (msg.role === "user") {
           // 用户消息标志着新的对话轮次，清除 step 上下文
           lastStepId = null;
+          teamStepIndexes.clear();
           
           list.push({
             kind: "user",
@@ -221,6 +264,28 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
       case "tool": {
         const tool = ev.data as ToolEvent;
         if (tool.task_id) {
+          const teamStepIndex = tool.graph_id
+            ? teamStepIndexes.get(`${tool.graph_id}:${tool.task_id}`)
+            : undefined;
+          if (teamStepIndex !== undefined) {
+            const teamStep = list[teamStepIndex];
+            if (teamStep.kind === "step") {
+              const existingToolIndex = tool.tool_call_id
+                ? teamStep.tools.findIndex(
+                    (item) =>
+                      item.tool_call_id === tool.tool_call_id &&
+                      item.attempt === tool.attempt,
+                  )
+                : -1;
+              const tools = [...teamStep.tools];
+              if (existingToolIndex >= 0) {
+                tools[existingToolIndex] = tool;
+              } else {
+                tools.push(tool);
+              }
+              list[teamStepIndex] = { ...teamStep, tools };
+            }
+          }
           break;
         }
         const toolCallId = (tool as { tool_call_id?: string }).tool_call_id;
@@ -282,11 +347,19 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
       }
       case "title":
       case "plan":
-      case "task_graph":
-      case "task":
       case "wait":
       case "done":
         break;
+      case "task_graph": {
+        for (const task of ev.data.graph.tasks) {
+          upsertTeamStep(ev.data.graph.id, task);
+        }
+        break;
+      }
+      case "task": {
+        upsertTeamStep(ev.data.graph_id, ev.data.task);
+        break;
+      }
       case "error": {
         // 处理错误事件
         const errorData = ev.data as { error?: string; created_at?: number; event_id?: string; [key: string]: unknown };
@@ -326,75 +399,38 @@ export function getLatestPlanFromEvents(events: SSEEventData[]): PlanStep[] {
   return steps;
 }
 
-export type TeamProjection = {
-  graph: TaskGraph;
-  toolsByTask: Record<string, ToolEvent[]>;
-};
-
-/** 将 Team Graph、Task 和 Tool 事件归并为刷新后可恢复的最新投影。 */
-export function getLatestTeamProjection(
+/** 将最新 Team Graph/Task 事件归并为底部任务步骤。 */
+export function getLatestTeamPlanFromEvents(
   events: SSEEventData[],
-): TeamProjection | null {
-  let graph: TaskGraph | null = null;
-  let toolsByTask: Record<string, ToolEvent[]> = {};
+): PlanStep[] | null {
+  let graphId: string | null = null;
+  let steps: PlanStep[] | null = null;
 
   for (const event of events) {
     if (event.type === "message" && event.data.role === "user") {
-      graph = null;
-      toolsByTask = {};
+      graphId = null;
+      steps = null;
       continue;
     }
 
     if (event.type === "task_graph") {
-      const nextGraph = structuredClone(event.data.graph);
-      if (graph === null || graph.id !== nextGraph.id) {
-        toolsByTask = {};
-      }
-      graph = nextGraph;
+      graphId = event.data.graph.id;
+      steps = event.data.graph.tasks.map((task) => ({
+        id: task.id,
+        description: task.description,
+        status: teamTaskStatusToExecutionStatus(task.status),
+      }));
       continue;
     }
 
-    if (event.type === "task" && graph && event.data.graph_id === graph.id) {
-      graph.tasks = graph.tasks.map((task) =>
-        task.id === event.data.task.id
-          ? structuredClone(event.data.task)
-          : task,
-      );
-      if (
-        event.data.task.status === "running" ||
-        event.data.task.status === "retrying"
-      ) {
-        graph.status = "running";
-      }
-      continue;
+    if (event.type === "task" && steps && event.data.graph_id === graphId) {
+      steps = steps.map((step) => step.id === event.data.task.id ? {
+        id: event.data.task.id,
+        description: event.data.task.description,
+        status: teamTaskStatusToExecutionStatus(event.data.task.status),
+      } : step);
     }
-
-    if (event.type !== "tool" || !event.data.task_id || !graph) {
-      continue;
-    }
-    if (event.data.graph_id && event.data.graph_id !== graph.id) {
-      continue;
-    }
-    if (!graph.tasks.some((task) => task.id === event.data.task_id)) {
-      continue;
-    }
-
-    const taskId = event.data.task_id;
-    const tools = [...(toolsByTask[taskId] ?? [])];
-    const index = event.data.tool_call_id
-      ? tools.findIndex(
-          (tool) =>
-            tool.tool_call_id === event.data.tool_call_id &&
-            (tool.attempt ?? null) === (event.data.attempt ?? null),
-        )
-      : -1;
-    if (index >= 0) {
-      tools[index] = event.data;
-    } else {
-      tools.push(event.data);
-    }
-    toolsByTask[taskId] = tools;
   }
 
-  return graph ? { graph, toolsByTask } : null;
+  return steps;
 }

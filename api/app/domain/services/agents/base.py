@@ -41,8 +41,6 @@ class BaseAgent(ABC):
             json_parser: JSONParser,  # JSON输出解析器
             tools: List[BaseTool],  # 工具列表
             memory: Optional[Memory] = None,
-            persist_memory: bool = True,
-            memory_key: Optional[str] = None,
             allowed_tool_names: Optional[set[str] | frozenset[str]] = None,
     ) -> None:
         """构造函数，完成Agent的初始化"""
@@ -52,8 +50,7 @@ class BaseAgent(ABC):
         self._agent_config = agent_config
         self._llm = llm
         self._memory: Optional[Memory] = memory
-        self._persist_memory = persist_memory
-        self._memory_key = memory_key or self.name
+        self._persist_memory = memory is None
         self._allowed_tool_names = (
             frozenset(allowed_tool_names)
             if allowed_tool_names is not None
@@ -66,13 +63,10 @@ class BaseAgent(ABC):
         """确保智能体记忆是存在的"""
         if self._memory is not None:
             return
-        if not self._persist_memory:
-            self._memory = Memory()
-            return
         async with self._uow:
             self._memory = await self._uow.session.get_memory(
                 self._session_id,
-                self._memory_key,
+                self.name,
             )
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
@@ -111,7 +105,7 @@ class BaseAgent(ABC):
         async with self._uow:
             await self._uow.session.save_memory(
                 self._session_id,
-                self._memory_key,
+                self.name,
                 self._memory,
             )
 

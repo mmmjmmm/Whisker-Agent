@@ -35,7 +35,6 @@ from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.planner_react import PlannerReActFlow
-from app.domain.services.flows.router import FlowRouter
 from app.domain.services.flows.team import build_team_flow
 from app.domain.services.tools.a2a import A2ATool
 from app.domain.services.tools.mcp import MCPTool
@@ -84,21 +83,17 @@ class AgentTaskRunner(TaskRunner):
             mcp_tool=self._mcp_tool,
             a2a_tool=self._a2a_tool,
         )
-        self._flow = self._react_flow
-        self._flow_router = FlowRouter(
-            react_flow=self._react_flow,
-            team_flow_factory=lambda: build_team_flow(
-                uow_factory=uow_factory,
-                session_id=session_id,
-                agent_config=agent_config,
-                llm=llm,
-                json_parser=json_parser,
-                browser=browser,
-                sandbox=sandbox,
-                search_engine=search_engine,
-                mcp_tool=self._mcp_tool,
-                a2a_tool=self._a2a_tool,
-            ),
+        self._team_flow_factory = lambda: build_team_flow(
+            uow_factory=uow_factory,
+            session_id=session_id,
+            agent_config=agent_config,
+            llm=llm,
+            json_parser=json_parser,
+            browser=browser,
+            sandbox=sandbox,
+            search_engine=search_engine,
+            mcp_tool=self._mcp_tool,
+            a2a_tool=self._a2a_tool,
         )
         self._active_flow: BaseFlow | None = None
 
@@ -347,7 +342,12 @@ class AgentTaskRunner(TaskRunner):
             return
 
         # 2.调用流并运行获取事件信息
-        self._active_flow = self._flow_router.resolve(mode)
+        if mode is AgentMode.REACT:
+            self._active_flow = self._react_flow
+        elif mode is AgentMode.TEAM:
+            self._active_flow = self._team_flow_factory()
+        else:
+            raise ValueError(f"不支持的 Agent mode: {mode}")
         async with aclosing(self._active_flow.invoke(message)) as flow_events:
             async for event in flow_events:
                 # 3.判断是否为工具事件，如果是则额外处理

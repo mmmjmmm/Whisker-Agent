@@ -7,10 +7,8 @@
 """
 import asyncio
 import logging
-from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncGenerator, Optional, List, Type, Callable, ClassVar
-from weakref import WeakValueDictionary
+from typing import AsyncGenerator, Optional, List, Type, Callable
 
 from pydantic import TypeAdapter
 
@@ -30,19 +28,8 @@ from app.application.errors.exceptions import ConflictError
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass(frozen=True)
-class PreparedChat:
-    task: Optional[Task]
-    initial_event: Optional[MessageEvent] = None
-
-
 class AgentService:
     """Manus智能体服务"""
-
-    _session_locks: ClassVar[WeakValueDictionary[str, asyncio.Lock]] = (
-        WeakValueDictionary()
-    )
 
     def __init__(
             self,
@@ -143,7 +130,6 @@ class AgentService:
     async def validate_chat_request(
             self,
             session_id: str,
-            mode: AgentMode,
             has_message: bool,
     ) -> None:
         """在创建 SSE 响应前拒绝运行中 Team 的追加消息。"""
@@ -158,93 +144,6 @@ class AgentService:
         ):
             raise ConflictError("Team 运行中不接受新消息；请先停止当前任务")
 
-    @classmethod
-    def _get_session_lock(cls, session_id: str) -> asyncio.Lock:
-        """单 API 进程内串行化同一 Session 的 run 占用。"""
-        lock = cls._session_locks.get(session_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            cls._session_locks[session_id] = lock
-        return lock
-
-    async def prepare_chat(
-            self,
-            session_id: str,
-            message: Optional[str] = None,
-            attachments: Optional[List[str]] = None,
-            mode: AgentMode = AgentMode.REACT,
-            timestamp: Optional[datetime] = None,
-    ) -> PreparedChat:
-        """在返回 SSE 响应前原子占用 Session、持久化输入并启动 Task。"""
-        async with self._get_session_lock(session_id):
-            async with self._uow:
-                session = await self._uow.session.get_by_id(session_id)
-            if not session:
-                raise RuntimeError("任务会话不存在, 请核实后重试")
-
-            if (
-                    message
-                    and session.status is SessionStatus.RUNNING
-                    and session.get_latest_agent_mode() is AgentMode.TEAM
-            ):
-                raise ConflictError("Team 运行中不接受新消息；请先停止当前任务")
-
-            task = await self._get_task(session)
-            if not message:
-                return PreparedChat(task=task)
-
-            if session.status is not SessionStatus.RUNNING or task is None:
-                task = await self._create_task(session)
-                if not task:
-                    raise RuntimeError(f"会话[{session_id}]创建任务失败")
-
-            async with self._uow:
-                await self._uow.session.update_latest_message(
-                    session_id=session_id,
-                    message=message,
-                    timestamp=timestamp or datetime.now(),
-                )
-                db_attachments = [
-                    await self._uow.file.get_by_id(file_id)
-                    for file_id in (attachments or [])
-                ]
-
-            message_event = MessageEvent(
-                role="user",
-                message=message,
-                attachments=[
-                    attachment
-                    for attachment in db_attachments
-                    if attachment is not None
-                ],
-                agent_mode=mode,
-            )
-            event_id = await task.input_stream.put(
-                message_event.model_dump_json()
-            )
-            message_event.id = event_id
-
-            async with self._uow:
-                await self._uow.session.add_event(session_id, message_event)
-                await self._uow.session.update_status(
-                    session_id,
-                    SessionStatus.RUNNING,
-                )
-            session.events.append(message_event)
-            session.status = SessionStatus.RUNNING
-
-            try:
-                await task.invoke()
-            except Exception:
-                async with self._uow:
-                    await self._uow.session.update_status(
-                        session_id,
-                        SessionStatus.COMPLETED,
-                    )
-                raise
-
-            return PreparedChat(task=task, initial_event=message_event)
-
     async def chat(
             self,
             session_id: str,
@@ -253,23 +152,63 @@ class AgentService:
             latest_event_id: Optional[str] = None,
             timestamp: Optional[datetime] = None,
             mode: AgentMode = AgentMode.REACT,
-            prepared: Optional[PreparedChat] = None,
     ) -> AsyncGenerator[BaseEvent, None]:
         """根据传递的信息调用Agent服务发起对话请求"""
         try:
-            prepared = prepared or await self.prepare_chat(
-                session_id=session_id,
-                message=message,
-                attachments=attachments,
-                mode=mode,
-                timestamp=timestamp,
-            )
-            task = prepared.task
-            if prepared.initial_event is not None:
-                yield prepared.initial_event
+            async with self._uow:
+                session = await self._uow.session.get_by_id(session_id)
+            if not session:
+                raise RuntimeError("任务会话不存在, 请核实后重试")
+
+            task = await self._get_task(session)
+            if message:
+                if (
+                        session.status is SessionStatus.RUNNING
+                        and session.get_latest_agent_mode() is AgentMode.TEAM
+                ):
+                    raise ConflictError("Team 运行中不接受新消息；请先停止当前任务")
+
+                if session.status is not SessionStatus.RUNNING or task is None:
+                    task = await self._create_task(session)
+                    if not task:
+                        raise RuntimeError(f"会话[{session_id}]创建任务失败")
+
+                async with self._uow:
+                    await self._uow.session.update_latest_message(
+                        session_id=session_id,
+                        message=message,
+                        timestamp=timestamp or datetime.now(),
+                    )
+                    db_attachments = [
+                        await self._uow.file.get_by_id(file_id)
+                        for file_id in (attachments or [])
+                    ]
+
+                message_event = MessageEvent(
+                    role="user",
+                    message=message,
+                    attachments=[
+                        attachment
+                        for attachment in db_attachments
+                        if attachment is not None
+                    ],
+                    agent_mode=mode,
+                )
+                event_id = await task.input_stream.put(
+                    message_event.model_dump_json()
+                )
+                message_event.id = event_id
+                async with self._uow:
+                    await self._uow.session.add_event(session_id, message_event)
+                    await self._uow.session.update_status(
+                        session_id,
+                        SessionStatus.RUNNING,
+                    )
+                await task.invoke()
+                yield message_event
                 logger.info(
                     f"往会话[{session_id}]输入消息队列写入消息: "
-                    f"{prepared.initial_event.message[:50]}..."
+                    f"{message[:50]}..."
                 )
 
             # 10.记录日志展示会话已启动
@@ -328,26 +267,22 @@ class AgentService:
 
     async def stop_session(self, session_id: str) -> None:
         """根据传递的会话id停止指定会话"""
-        async with self._get_session_lock(session_id):
-            # 1.查找会话是否存在
-            async with self._uow:
-                session = await self._uow.session.get_by_id(session_id)
-            if not session:
-                logger.error(f"尝试停止不存在的会话[{session_id}]")
-                raise RuntimeError("任务会话不存在, 请核实后重试")
+        async with self._uow:
+            session = await self._uow.session.get_by_id(session_id)
+        if not session:
+            logger.error(f"尝试停止不存在的会话[{session_id}]")
+            raise RuntimeError("任务会话不存在, 请核实后重试")
 
-            # 2.等待取消快照、子协程退出和工具清理完成
-            task = await self._get_task(session)
-            if task:
-                task.cancel()
-                await task.wait()
+        task = await self._get_task(session)
+        if task:
+            task.cancel()
+            await task.wait()
 
-            # 3.完成清理后才释放 Session run 占用
-            async with self._uow:
-                await self._uow.session.update_status(
-                    session_id,
-                    SessionStatus.COMPLETED,
-                )
+        async with self._uow:
+            await self._uow.session.update_status(
+                session_id,
+                SessionStatus.COMPLETED,
+            )
 
     async def shutdown(self) -> None:
         """关闭Agent服务"""

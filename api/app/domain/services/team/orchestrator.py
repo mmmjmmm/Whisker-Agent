@@ -17,7 +17,7 @@ from app.domain.services.team.graph import (
     ready_tasks,
 )
 
-EmitEvent = Callable[[BaseEvent, bool], Awaitable[None]]
+EmitEvent = Callable[[BaseEvent], Awaitable[None]]
 
 
 class WorkerExecutor(Protocol):
@@ -55,7 +55,6 @@ class TeamOrchestrator:
         graph: TaskGraph,
         task: TeamTask,
         emit: EmitEvent,
-        wait_for_publish: bool = True,
     ) -> None:
         await emit(
             TeamTaskEvent(
@@ -63,8 +62,7 @@ class TeamOrchestrator:
                 task=task.model_copy(deep=True),
                 agent_id=task.assigned_agent_id,
                 attempt=task.attempt_count,
-            ),
-            wait_for_publish,
+            )
         )
 
     async def _execute_task(
@@ -112,12 +110,6 @@ class TeamOrchestrator:
             except asyncio.CancelledError:
                 task.status = TeamTaskStatus.CANCELLED
                 task.error = "cancelled"
-                await self._emit_task(
-                    graph,
-                    task,
-                    emit,
-                    wait_for_publish=False,
-                )
                 raise
             except TimeoutError:
                 task.error = "task_timeout"

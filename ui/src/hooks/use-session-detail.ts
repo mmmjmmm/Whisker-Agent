@@ -158,17 +158,12 @@ export function useSessionDetail(
         if (err.name === "AbortError") {
           return;
         }
-        // 流正常结束（服务端关闭连接），延迟重连
         if (err.message === "SSE_STREAM_END") {
           emptyStreamCleanupRef.current = null;
-          setTimeout(() => {
-            if (!emptyStreamCleanupRef.current && !isSendMessageRef.current) {
-              startEmptyStream();
-            }
-          }, 500);
           return;
         }
-        console.warn("Session detail empty stream error:", err);
+        emptyStreamCleanupRef.current = null;
+        setError(err);
       },
     );
   }, [sessionId, appendEvent]);
@@ -256,11 +251,9 @@ export function useSessionDetail(
     };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sessionStatus = session?.status;
-
   useEffect(() => {
-    if (!sessionId || !sessionStatus) return;
-    const completed = sessionStatus === "completed";
+    if (!sessionId || !session) return;
+    const completed = session.status === "completed";
     // 如果标记了跳过空流（比如有初始消息待发送），则不启动空流
     if (!completed && !isSendMessageRef.current && !skipEmptyStream) {
       startEmptyStream();
@@ -270,7 +263,7 @@ export function useSessionDetail(
     };
   }, [
     sessionId,
-    sessionStatus,
+    session?.status,
     skipEmptyStream,
     startEmptyStream,
     stopEmptyStream,
@@ -307,16 +300,13 @@ export function useSessionDetail(
       const onEvent = (ev: SSEEventData) => {
         appendEvent(ev);
         if (ev.type === "done") {
-          // 本次消息流结束，清理消息流，重新打开空流，继续监听这个会话后续事件。
           setStreaming(false);
           isSendMessageRef.current = false;
-          // 清理消息流的 cleanup
           if (messageStreamCleanupRef.current) {
             messageStreamCleanupRef.current();
             messageStreamCleanupRef.current = null;
           }
           setSession((prev) => (prev ? { ...prev } : null));
-          startEmptyStream();
         }
       };
       // 真正发起聊天 SSE 请求，返回一个 cleanup 函数，就是 abort 这个连接的方法
@@ -331,15 +321,10 @@ export function useSessionDetail(
             isSendMessageRef.current = false;
             return;
           }
-          // 流正常结束（服务端关闭连接），重置状态并启动空流监听后续事件
           if (err.message === "SSE_STREAM_END") {
             setStreaming(false);
             isSendMessageRef.current = false;
-            if (messageStreamCleanupRef.current) {
-              messageStreamCleanupRef.current();
-              messageStreamCleanupRef.current = null;
-            }
-            startEmptyStream();
+            messageStreamCleanupRef.current = null;
             return;
           }
           // 实际错误
@@ -350,13 +335,12 @@ export function useSessionDetail(
             messageStreamCleanupRef.current();
             messageStreamCleanupRef.current = null;
           }
-          void refresh();
         },
       );
       // 将消息流的 cleanup 存到独立的 ref，不与 emptyStream 混淆
       messageStreamCleanupRef.current = messageStreamCleanup;
     },
-    [sessionId, appendEvent, refresh, startEmptyStream, stopEmptyStream],
+    [sessionId, appendEvent, stopEmptyStream],
   );
 
   return {

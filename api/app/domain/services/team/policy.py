@@ -66,14 +66,5 @@ class ToolPolicy:
             return []
         return [tool for tool in self._tools if tool.name == toolbox_name]
 
-    def available_schemas(self, capability: TeamCapability) -> list[dict]:
-        allowed = self.allowed_names(capability)
-        return [
-            schema
-            for tool in self.tools_for(capability)
-            for schema in tool.get_tools()
-            if schema["function"]["name"] in allowed
-        ]
-
     def is_parallel_safe(self, capability: TeamCapability) -> bool:
         return capability in PARALLEL_SAFE

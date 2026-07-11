@@ -1,6 +1,4 @@
 import asyncio
-from collections.abc import Callable
-from dataclasses import dataclass
 
 from app.domain.models.event import (
     BaseEvent,
@@ -14,13 +12,11 @@ from app.domain.models.event import (
 from app.domain.models.file import File
 from app.domain.models.memory import Memory
 from app.domain.models.message import Message
-from app.domain.models.session import SessionStatus
 from app.domain.models.team import (
     TaskGraph,
     TaskGraphStatus,
     TeamTaskStatus,
 )
-from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.agents.task_worker import TaskWorker
 from app.domain.services.agents.team_planner import TeamPlannerAgent
 from app.domain.services.agents.team_synthesizer import TeamSynthesizerAgent
@@ -34,38 +30,20 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 
 
-@dataclass
-class EventEnvelope:
-    event: BaseEvent
-    published: asyncio.Future[None]
-
-    def confirm(self) -> None:
-        if not self.published.done():
-            self.published.set_result(None)
-
-    def abort(self) -> None:
-        if not self.published.done():
-            self.published.cancel()
-
-
 class QueuedEventEmitter:
     def __init__(self):
-        self._queue: asyncio.Queue[EventEnvelope | None] = asyncio.Queue()
+        self._queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
         self._closed = False
 
     async def emit(
         self,
         event: BaseEvent,
-        wait_for_publish: bool = True,
     ) -> None:
         if self._closed:
             raise RuntimeError("event emitter is closed")
-        future = asyncio.get_running_loop().create_future()
-        await self._queue.put(EventEnvelope(event, future))
-        if wait_for_publish:
-            await future
+        await self._queue.put(event)
 
-    async def get(self) -> EventEnvelope | None:
+    async def get(self) -> BaseEvent | None:
         return await self._queue.get()
 
     async def close(self) -> None:
@@ -73,31 +51,16 @@ class QueuedEventEmitter:
             self._closed = True
             await self._queue.put(None)
 
-    async def abort_pending(self) -> None:
-        """关闭队列并取消尚未得到发布确认的信封。"""
-        self._closed = True
-        while True:
-            try:
-                envelope = self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-            if envelope is not None:
-                envelope.abort()
-
 
 class TeamFlow(BaseFlow):
     def __init__(
         self,
         *,
-        uow_factory: Callable[[], IUnitOfWork],
-        session_id: str,
         team_max_tasks: int,
         planner,
         orchestrator,
         synthesizer_factory,
     ):
-        self._uow = uow_factory()
-        self._session_id = session_id
         self._team_max_tasks = team_max_tasks
         self._planner = planner
         self._orchestrator = orchestrator
@@ -112,12 +75,6 @@ class TeamFlow(BaseFlow):
 
     async def invoke(self, message: Message):
         self._done = False
-        async with self._uow:
-            await self._uow.session.update_status(
-                self._session_id,
-                SessionStatus.RUNNING,
-            )
-
         validation_error = None
         for _ in range(2):
             try:
@@ -161,16 +118,10 @@ class TeamFlow(BaseFlow):
         self._producer = asyncio.create_task(produce())
         try:
             while True:
-                envelope = await emitter.get()
-                if envelope is None:
+                event = await emitter.get()
+                if event is None:
                     break
-                try:
-                    yield envelope.event
-                except BaseException:
-                    envelope.abort()
-                    raise
-                else:
-                    envelope.confirm()
+                yield event
 
             try:
                 self._graph = await self._producer
@@ -227,7 +178,6 @@ class TeamFlow(BaseFlow):
                     self._producer,
                     return_exceptions=True,
                 )
-            await emitter.abort_pending()
             self._done = True
 
     async def cancel_events(self) -> list[BaseEvent]:
@@ -305,8 +255,6 @@ def build_team_flow(
         json_parser=json_parser,
         tools=[],
         memory=Memory(),
-        persist_memory=False,
-        allowed_tool_names=frozenset(),
     )
     worker_config = agent_config.model_copy(
         update={
@@ -323,7 +271,6 @@ def build_team_flow(
             json_parser=json_parser,
             tools=policy.tools_for(task.capability),
             memory=Memory(),
-            persist_memory=False,
             allowed_tool_names=policy.allowed_names(task.capability),
             graph_id=graph_id,
             task=task,
@@ -348,13 +295,9 @@ def build_team_flow(
             json_parser=json_parser,
             tools=[],
             memory=Memory(),
-            persist_memory=False,
-            allowed_tool_names=frozenset(),
         )
 
     return TeamFlow(
-        uow_factory=uow_factory,
-        session_id=session_id,
         team_max_tasks=agent_config.team_max_tasks,
         planner=planner,
         orchestrator=orchestrator,

@@ -1,7 +1,7 @@
 import uuid
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 
 class AgentMode(str, Enum):
@@ -51,16 +51,9 @@ class WorkerResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     success: bool
-    summary: str
+    summary: str = Field(min_length=1)
     sources: list[SourceRef] = Field(default_factory=list)
     artifacts: list[str] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def require_success_summary(self):
-        if self.success and not self.summary.strip():
-            raise ValueError("successful worker result requires summary")
-        return self
 
 
 class FinalTeamResponse(BaseModel):

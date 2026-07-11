@@ -14,16 +14,6 @@ export type SessionStatus = "pending" | "running" | "waiting" | "completed";
 
 export type AgentMode = "react" | "team";
 
-export type TeamCapability =
-  | "analysis"
-  | "search"
-  | "browser"
-  | "file_read"
-  | "file_write"
-  | "shell"
-  | "mcp"
-  | "a2a";
-
 export type TeamTaskStatus =
   | "pending"
   | "running"
@@ -41,37 +31,14 @@ export type TaskGraphStatus =
   | "failed"
   | "cancelled";
 
-export type SourceRef = {
-  title: string;
-  url: string;
-  snippet?: string | null;
-};
-
-export type WorkerResult = {
-  success: boolean;
-  summary: string;
-  sources: SourceRef[];
-  artifacts: string[];
-  notes: string[];
-};
-
 export type TeamTask = {
   id: string;
   description: string;
-  dependencies: string[];
-  capability: TeamCapability;
-  success_criteria: string;
   status: TeamTaskStatus;
-  assigned_agent_id?: string | null;
-  attempt_count: number;
-  result?: WorkerResult | null;
-  error?: string | null;
 };
 
 export type TaskGraph = {
   id: string;
-  title: string;
-  goal: string;
   tasks: TeamTask[];
   status: TaskGraphStatus;
   error?: string | null;
