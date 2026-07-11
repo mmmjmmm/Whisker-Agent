@@ -73,20 +73,6 @@ def get_file_service(
         oss=oss,
         uow_factory=get_uow,
     )
-    json_parser = RepairJSONParser()
-    search_engine = BingSearchEngine()
-    research_flow_factory = None
-    if settings.research_team_enabled:
-        team_factory = ResearchTeamFlowFactory(
-            uow_factory=get_uow,
-            llm=llm,
-            json_parser=json_parser,
-            search_engine=search_engine,
-            web_reader=HttpxWebReader(),
-            source_storage=OSSSourceContentStorage(oss.bucket),
-            file_storage=file_storage,
-        )
-        research_flow_factory = team_factory.create
 
     # 2.构建服务并返回
     return FileService(
@@ -112,6 +98,20 @@ def get_agent_service(
         oss=oss,
         uow_factory=get_uow,
     )
+    json_parser = RepairJSONParser()
+    search_engine = BingSearchEngine()
+    research_flow_factory = None
+    if settings.research_team_enabled:
+        team_factory = ResearchTeamFlowFactory(
+            uow_factory=get_uow,
+            llm=llm,
+            json_parser=json_parser,
+            search_engine=search_engine,
+            web_reader=HttpxWebReader(),
+            source_storage=OSSSourceContentStorage(oss.bucket),
+            file_storage=file_storage,
+        )
+        research_flow_factory = team_factory.create
 
     # 3.实例Agent服务并返回
     return AgentService(
