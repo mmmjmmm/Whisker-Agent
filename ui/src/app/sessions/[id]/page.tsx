@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { SessionDetailView } from '@/components/session-detail-view'
+import type { AgentMode } from '@/lib/api/types'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -21,6 +22,7 @@ export default function SessionDetailPage({ params }: PageProps) {
     id: string
     initialMessage?: string
     initialAttachments?: string[]
+    initialMode?: AgentMode
     hasInitialMessage: boolean
   } | null>(null)
   
@@ -33,13 +35,14 @@ export default function SessionDetailPage({ params }: PageProps) {
         try {
           // 解码 Base64
           const decoded = decodeURIComponent(atob(initParam))
-          const { message, attachments } = JSON.parse(decoded)
+          const { message, attachments, mode } = JSON.parse(decoded)
           
           // 一次性设置所有状态
           setSessionData({
             id: p.id,
             initialMessage: message,
             initialAttachments: attachments,
+            initialMode: mode === 'team' ? 'team' : 'react',
             hasInitialMessage: true
           })
         } catch (e) {
@@ -68,6 +71,7 @@ export default function SessionDetailPage({ params }: PageProps) {
       sessionId={sessionData.id}
       initialMessage={sessionData.initialMessage}
       initialAttachments={sessionData.initialAttachments}
+      initialMode={sessionData.initialMode}
       hasInitialMessage={sessionData.hasInitialMessage}
     />
   )

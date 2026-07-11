@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { SessionHeader } from '@/components/session-header'
 import { ChatInput } from '@/components/chat-input'
 import { PlanPanel } from '@/components/plan-panel'
+import { TeamTaskPanel } from '@/components/team-task-panel'
 import { ChatMessage } from '@/components/chat-message'
 import { FilePreviewPanel } from '@/components/file-preview-panel'
 import { ToolPreviewPanel } from '@/components/tool-preview-panel'
@@ -14,8 +15,9 @@ import { getToolKind } from '@/components/tool-use/utils'
 import {
   eventsToTimeline,
   getLatestPlanFromEvents,
+  getLatestTeamProjection,
 } from '@/lib/session-events'
-import type { ToolEvent, FileInfo } from '@/lib/api/types'
+import type { AgentMode, ToolEvent, FileInfo, SSEEventData } from '@/lib/api/types'
 import type { AttachmentFile, TimelineItem } from '@/lib/session-events'
 import { sessionApi } from '@/lib/api/session'
 import { toast } from 'sonner'
@@ -25,13 +27,29 @@ export interface SessionDetailViewProps {
   sessionId: string
   initialMessage?: string
   initialAttachments?: string[]
+  initialMode?: AgentMode
   hasInitialMessage?: boolean
 }
 
 /**
  * 从 timeline 中找到最后一个非 message 类型的工具事件
  */
-function findLatestTool(timeline: TimelineItem[]): ToolEvent | null {
+function findLatestTool(
+  timeline: TimelineItem[],
+  events: SSEEventData[],
+  graphId?: string,
+): ToolEvent | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (
+      event.type === 'tool' &&
+      event.data.task_id &&
+      (!graphId || !event.data.graph_id || event.data.graph_id === graphId) &&
+      getToolKind(event.data) !== 'message'
+    ) {
+      return event.data
+    }
+  }
   for (let i = timeline.length - 1; i >= 0; i--) {
     const item = timeline[i]
     if (item.kind === 'tool' && getToolKind(item.data) !== 'message') {
@@ -48,7 +66,7 @@ function findLatestTool(timeline: TimelineItem[]): ToolEvent | null {
   return null
 }
 
-export function SessionDetailView({ sessionId, initialMessage, initialAttachments, hasInitialMessage }: SessionDetailViewProps) {
+export function SessionDetailView({ sessionId, initialMessage, initialAttachments, initialMode, hasInitialMessage }: SessionDetailViewProps) {
   const router = useRouter()
   const {
     session,
@@ -64,14 +82,28 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
 
   const timeline = useMemo(() => eventsToTimeline(events), [events])
   const planSteps = useMemo(() => getLatestPlanFromEvents(events), [events])
+  const teamProjection = useMemo(() => getLatestTeamProjection(events), [events])
+  const persistedMode = useMemo(() => {
+    for (let index = events.length - 1; index >= 0; index--) {
+      const event = events[index]
+      if (event.type === 'message' && event.data.role === 'user') {
+        return event.data.agent_mode ?? null
+      }
+    }
+    return null
+  }, [events])
 
+  const [modeOverride, setModeOverride] = useState<AgentMode | null>(initialMode ?? null)
+  const mode = modeOverride ?? persistedMode ?? 'react'
   const [fileListOpen, setFileListOpen] = useState(false)
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null)
   const [previewTool, setPreviewTool] = useState<ToolEvent | null>(null)
   const [vncOpen, setVncOpen] = useState(false)
+  const [initialMessagePending, setInitialMessagePending] = useState(Boolean(hasInitialMessage))
   const initialMessageSentRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const prevToolCountRef = useRef(0)
+  const prevGraphIdRef = useRef<string | null>(null)
 
   const hasPreview = previewFile !== null || previewTool !== null
 
@@ -86,6 +118,13 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
     const id = (previewTool as { tool_call_id?: string }).tool_call_id
     if (!id) return previewTool
 
+    if (teamProjection) {
+      for (const tools of Object.values(teamProjection.toolsByTask)) {
+        const latest = tools.find((tool) => tool.tool_call_id === id)
+        if (latest) return latest
+      }
+    }
+
     for (let i = timeline.length - 1; i >= 0; i--) {
       const item = timeline[i]
       if (item.kind === 'tool' && (item.data as { tool_call_id?: string }).tool_call_id === id) {
@@ -98,26 +137,40 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
       }
     }
     return previewTool
-  }, [previewTool, timeline])
+  }, [previewTool, teamProjection, timeline])
 
   // 任务运行中自动追踪最新工具预览（VNC 打开时暂停）
   useEffect(() => {
     if (session?.status !== 'running' || vncOpen) return
 
-    const latestTool = findLatestTool(timeline)
-    const toolCount = timeline.reduce((n, item) => {
+    const graphId = teamProjection?.graph.id ?? null
+    const latestTool = findLatestTool(timeline, events, graphId ?? undefined)
+    const timelineToolCount = timeline.reduce((n, item) => {
       if (item.kind === 'tool') return n + 1
       if (item.kind === 'step') return n + item.tools.length
       return n
     }, 0)
+    const teamToolCount = teamProjection
+      ? Object.values(teamProjection.toolsByTask).reduce((count, tools) => count + tools.length, 0)
+      : 0
+    const toolCount = timelineToolCount + teamToolCount
 
-    if (toolCount > prevToolCountRef.current && latestTool) {
+    if (prevGraphIdRef.current !== graphId) {
+      prevGraphIdRef.current = graphId
+      prevToolCountRef.current = timelineToolCount
+    }
+
+    const shouldPreview = toolCount > prevToolCountRef.current && latestTool
+    prevToolCountRef.current = toolCount
+    if (!shouldPreview) return
+
+    const frame = window.requestAnimationFrame(() => {
       setPreviewTool(latestTool)
       setPreviewFile(null)
       scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
-    }
-    prevToolCountRef.current = toolCount
-  }, [timeline, session?.status, vncOpen])
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [events, teamProjection, timeline, session?.status, vncOpen])
 
   useEffect(() => {
     if (
@@ -128,29 +181,31 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
       !streaming
     ) {
       initialMessageSentRef.current = true
-      sendMessage(initialMessage, initialAttachments || [])
+      sendMessage(initialMessage, initialAttachments || [], mode)
         .then(() => {
+          setInitialMessagePending(false)
           setTimeout(() => {
             router.replace(`/sessions/${sessionId}`)
           }, 100)
         })
         .catch((e) => {
+          setInitialMessagePending(false)
           toast.error(e instanceof Error ? e.message : '发送消息失败')
         })
     }
-  }, [initialMessage, initialAttachments, session, loading, streaming, sendMessage, sessionId, router])
+  }, [initialMessage, initialAttachments, mode, session, loading, streaming, sendMessage, sessionId, router])
 
   const handleSend = useCallback(
     async (message: string, uploadedFiles: FileInfo[]) => {
       try {
         const attachmentIds = uploadedFiles.map((f) => f.id)
-        await sendMessage(message, attachmentIds)
+        await sendMessage(message, attachmentIds, mode)
       } catch (e) {
         toast.error(e instanceof Error ? e.message : '发送失败，请重试')
         throw e
       }
     },
-    [sendMessage]
+    [mode, sendMessage]
   )
 
   const handleViewAllFiles = useCallback(() => {
@@ -176,13 +231,13 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   }, [])
 
   const handleJumpToLatest = useCallback(() => {
-    const latest = findLatestTool(timeline)
+    const latest = findLatestTool(timeline, events, teamProjection?.graph.id)
     if (latest) {
       setPreviewTool(latest)
       setPreviewFile(null)
     }
     scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
-  }, [timeline])
+  }, [events, teamProjection?.graph.id, timeline])
 
   const handleOpenVNC = useCallback(() => {
     setVncOpen(true)
@@ -191,7 +246,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const handleCloseVNC = useCallback(() => {
     setVncOpen(false)
     // 关闭 VNC 后跳转到最新工具
-    const latest = findLatestTool(timeline)
+    const latest = findLatestTool(timeline, events, teamProjection?.graph.id)
     if (latest && session?.status === 'running') {
       setPreviewTool(latest)
       setPreviewFile(null)
@@ -199,7 +254,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
         scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
       }, 100)
     }
-  }, [timeline, session?.status])
+  }, [events, teamProjection?.graph.id, timeline, session?.status])
 
   const handleStop = useCallback(async () => {
     if (!session) return
@@ -284,7 +339,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
                   />
                 ))}
 
-                {(session?.status === 'running' || (hasInitialMessage && !initialMessageSentRef.current)) && (
+                {(session?.status === 'running' || initialMessagePending) && (
                   <div className="flex items-center gap-2 text-sm text-gray-500 py-3">
                     <Loader2 className="size-4 animate-spin" />
                     <span>正在思考中...</span>
@@ -296,12 +351,21 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
             </div>
 
             <div className="flex-shrink-0 bg-[#f8f8f7] py-4">
-              <PlanPanel className="mb-2" steps={planSteps} />
+              {teamProjection ? (
+                <TeamTaskPanel
+                  projection={teamProjection}
+                  onToolClick={handleToolClick}
+                />
+              ) : (
+                <PlanPanel className="mb-2" steps={planSteps} />
+              )}
               <ChatInput
                 onSend={handleSend}
                 sessionId={sessionId}
                 isRunning={session?.status === 'running'}
                 onStop={handleStop}
+                mode={mode}
+                onModeChange={setModeOverride}
               />
             </div>
           </div>

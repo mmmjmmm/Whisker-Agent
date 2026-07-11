@@ -6,13 +6,14 @@ import { ChatHeader } from "@/components/chat-header";
 import { ChatInput, type ChatInputRef } from "@/components/chat-input";
 import { SuggestedQuestions } from "@/components/suggested-questions";
 import { sessionApi } from "@/lib/api/session";
-import type { FileInfo } from "@/lib/api/types";
+import type { AgentMode, FileInfo } from "@/lib/api/types";
 import { toast } from "sonner";
 
 export default function Page() {
   const router = useRouter();
   const chatInputRef = useRef<ChatInputRef>(null);
   const [sending, setSending] = useState(false);
+  const [mode, setMode] = useState<AgentMode>("react");
 
   const handleQuestionClick = (question: string) => {
     chatInputRef.current?.setInputText(question);
@@ -30,7 +31,7 @@ export default function Page() {
 
       // 2. 将消息数据编码到 URL，在详情页发送
       const attachments = files.map((file) => file.id);
-      const payload = JSON.stringify({ message, attachments });
+      const payload = JSON.stringify({ message, attachments, mode });
       // 使用 Base64 编码避免 URL 特殊字符问题
       const encoded = btoa(encodeURIComponent(payload));
 
@@ -63,6 +64,8 @@ export default function Page() {
             className="mb-4 sm:mb-6"
             onSend={handleSend}
             disabled={sending}
+            mode={mode}
+            onModeChange={setMode}
           />
           {/* 推荐对话内容 */}
           <SuggestedQuestions onQuestionClick={handleQuestionClick} />

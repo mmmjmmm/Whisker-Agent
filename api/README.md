@@ -51,6 +51,22 @@ api/
 | POST | `/api/sessions/{id}/chat` | SSE 流式对话 |
 | WS | `/api/sessions/{id}/vnc` | VNC WebSocket 代理 |
 
+### 多 Agent Team 模式
+
+`POST /api/sessions/{id}/chat` 的 `mode` 默认是 `react`，显式传入 `team` 才启用动态 DAG 编排：
+
+```json
+{
+  "message": "调研主流多 Agent 架构并形成报告",
+  "attachments": [],
+  "mode": "team"
+}
+```
+
+Team 模式最多生成 5 个任务节点，同时运行不超过 3 个 Worker，每个失败节点最多重试 1 次。`analysis`、`search`、`file_read` 节点允许并行；Browser、FileWrite、Shell、MCP、A2A 节点串行独占共享运行环境。运行期间只允许停止，不接受追加消息；此时再次发送消息会返回 HTTP 409。
+
+SSE 在原有事件之外会发送 `task_graph`、`task`，并在 Team 工具事件中附带 `graph_id`、`task_id`、`agent_id`、`attempt`。首期不支持 API 进程重启后的任务续跑；下次读取会话时会把失联运行收敛为 `process_interrupted`。该功能不要求额外修改 `.env` 或 `config.yaml`。
+
 ## 本地开发
 
 ### 环境准备
