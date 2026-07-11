@@ -7,9 +7,19 @@ from app.domain.models.app_config import AgentConfig
 from app.domain.models.event import ToolEventStatus
 from app.domain.models.memory import Memory
 from app.domain.models.message import Message
-from app.domain.models.team import SourceRef, TeamTaskStatus, WorkerResult
+from app.domain.models.team import (
+    PlannedTask,
+    PlannedTaskGraph,
+    SourceRef,
+    TeamTaskStatus,
+    WorkerResult,
+)
 from app.domain.models.tool_result import ToolResult
-from app.domain.services.agents.task_worker import TaskWorker, validate_sources
+from app.domain.services.agents.task_worker import (
+    TaskWorker,
+    validate_artifacts,
+    validate_sources,
+)
 from app.domain.services.agents.team_planner import TeamPlannerAgent
 from app.domain.services.agents.team_synthesizer import (
     TeamSynthesizerAgent,
@@ -29,6 +39,26 @@ def test_worker_rejects_unobserved_source_url():
 
     with pytest.raises(ValueError, match="unobserved"):
         validate_sources(result, {"https://observed.example/item"})
+
+
+def test_worker_rejects_unobserved_or_unsafe_artifact_paths():
+    observed = WorkerResult(
+        success=True,
+        summary="report",
+        artifacts=["/home/ubuntu/report.md"],
+    )
+    validate_artifacts(observed, {"/home/ubuntu/report.md"})
+
+    with pytest.raises(ValueError, match="unobserved artifact"):
+        validate_artifacts(observed, set())
+
+    unsafe = WorkerResult(
+        success=True,
+        summary="secrets",
+        artifacts=["/proc/self/environ"],
+    )
+    with pytest.raises(ValueError, match="unsafe artifact"):
+        validate_artifacts(unsafe, {"/proc/self/environ"})
 
 
 @pytest.mark.parametrize(
@@ -231,5 +261,60 @@ def test_planner_worker_and_synthesizer_keep_structure_metadata_and_sources():
         assert planner_uow.session.save_memory_calls == 0
         assert worker_uow.session.save_memory_calls == 0
         assert synthesizer_uow.session.save_memory_calls == 0
+
+    asyncio.run(scenario())
+
+
+def test_worker_rejects_self_reported_artifact_without_tool_evidence():
+    async def scenario():
+        planned = PlannedTaskGraph(
+            title="analysis",
+            goal="write a report",
+            tasks=[
+                PlannedTask(
+                    id="analyze",
+                    description="analyze",
+                    capability="analysis",
+                    success_criteria="done",
+                )
+            ],
+        )
+        graph = build_task_graph(planned, max_tasks=5)
+        worker_kwargs, _ = agent_kwargs(
+            QueueLLM(
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        {
+                            "success": True,
+                            "summary": "claimed a file",
+                            "sources": [],
+                            "artifacts": ["/home/ubuntu/report.md"],
+                            "notes": [],
+                        }
+                    ),
+                }
+            ),
+            [],
+        )
+        worker = TaskWorker(
+            **worker_kwargs,
+            allowed_tool_names=set(),
+            graph_id=graph.id,
+            task=graph.tasks[0],
+            agent_id="worker-1",
+            attempt=1,
+        )
+
+        async def emit(event, wait_for_publish=True):
+            pass
+
+        with pytest.raises(ValueError, match="unobserved artifact"):
+            await worker.execute(
+                goal=graph.goal,
+                dependency_results={},
+                attachments=[],
+                emit=emit,
+            )
 
     asyncio.run(scenario())
