@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.agent_service import AgentService
 from app.application.services.app_config_service import AppConfigService
 from app.application.services.file_service import FileService
+from app.application.services.run_recovery_service import RunRecoveryService
 from app.application.services.session_service import SessionService
 from app.application.services.status_service import StatusService
 from app.infrastructure.external.file_storage.oss_file_storage import OSSFileStorage
@@ -83,6 +84,10 @@ def get_file_service(
 
 def get_session_service() -> SessionService:
     return SessionService(uow_factory=get_uow, sandbox_cls=DockerSandbox)
+
+
+def get_run_recovery_service() -> RunRecoveryService:
+    return RunRecoveryService(uow_factory=get_uow)
 
 
 def get_agent_service(

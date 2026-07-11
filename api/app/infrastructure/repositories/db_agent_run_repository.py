@@ -5,9 +5,11 @@ from app.domain.models.agent_run import (
     AgentMode,
     AgentRun,
     AgentTask,
+    AttemptStatus,
     InterruptedRun,
     RunStatus,
     TaskAttempt,
+    TaskStatus,
     utc_now,
 )
 from app.domain.repositories.agent_run_repository import AgentRunRepository
@@ -124,9 +126,17 @@ class DBAgentRunRepository(AgentRunRepository):
 
     async def mark_active_interrupted(self, reason: str) -> list[InterruptedRun]:
         result = await self.db_session.execute(
-            select(AgentRunModel).where(AgentRunModel.status.in_(ACTIVE_RUN_STATUSES))
+            select(AgentRunModel)
+            .where(
+                AgentRunModel.mode == AgentMode.RESEARCH_TEAM.value,
+                AgentRunModel.status.in_(ACTIVE_RUN_STATUSES),
+            )
+            .with_for_update()
         )
         records = list(result.scalars().all())
+        if not records:
+            return []
+
         interrupted: list[InterruptedRun] = []
         now = utc_now()
         for record in records:
@@ -140,5 +150,47 @@ class DBAgentRunRepository(AgentRunRepository):
             interrupted.append(
                 InterruptedRun(run_id=record.id, session_id=record.session_id)
             )
-        return interrupted
 
+        run_ids = [record.id for record in records]
+        task_result = await self.db_session.execute(
+            select(AgentTaskModel)
+            .where(
+                AgentTaskModel.run_id.in_(run_ids),
+                AgentTaskModel.status.in_(
+                    {
+                        TaskStatus.PENDING.value,
+                        TaskStatus.READY.value,
+                        TaskStatus.RUNNING.value,
+                    }
+                ),
+            )
+            .with_for_update()
+        )
+        for task in task_result.scalars().all():
+            task.status = TaskStatus.INTERRUPTED.value
+            task.error = {
+                "type": "ProcessInterrupted",
+                "message": reason,
+            }
+            task.updated_at = now
+
+        attempt_result = await self.db_session.execute(
+            select(AgentTaskAttemptModel)
+            .where(
+                AgentTaskAttemptModel.run_id.in_(run_ids),
+                AgentTaskAttemptModel.status.in_(
+                    {
+                        AttemptStatus.PENDING.value,
+                        AttemptStatus.RUNNING.value,
+                    }
+                ),
+            )
+            .with_for_update()
+        )
+        for attempt in attempt_result.scalars().all():
+            attempt.status = AttemptStatus.INTERRUPTED.value
+            attempt.error_type = "ProcessInterrupted"
+            attempt.error_message = reason
+            attempt.finished_at = now
+
+        return interrupted

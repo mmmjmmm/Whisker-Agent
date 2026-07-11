@@ -20,7 +20,10 @@ from app.infrastructure.storage.postgres import get_postgres
 from app.infrastructure.storage.redis import get_redis
 from app.interfaces.endpoints.routes import router
 from app.interfaces.errors.exception_handlers import register_exception_handlers
-from app.interfaces.service_dependencies import get_agent_service
+from app.interfaces.service_dependencies import (
+    get_agent_service,
+    get_run_recovery_service,
+)
 from core.config import get_settings
 
 # 1.加载配置信息
@@ -55,6 +58,18 @@ async def lifespan(app: FastAPI):
     # 3.初始化Redis/Postgres/OSS客户端
     await get_redis().init()
     await get_postgres().init()
+
+    # 当前 ResearchTeam 只支持单 API 进程；启动时收敛上一进程遗留的运行。
+    recovery = await get_run_recovery_service().interrupt_orphaned_runs(
+        "process_started"
+    )
+    logger.info(
+        "Research run recovery completed",
+        extra={
+            "run_count": len(recovery.run_ids),
+            "run_ids": recovery.run_ids,
+        },
+    )
     await get_oss().init()
 
     try:
