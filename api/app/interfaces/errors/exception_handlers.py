@@ -29,7 +29,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             content=Response(
                 code=e.status_code,
                 msg=e.msg,
-                data={}
+                data=e.data,
             ).model_dump(),
         )
 

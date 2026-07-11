@@ -11,15 +11,26 @@ from typing import Optional, Dict, Any, Self, Type, Literal, List, Union, get_ar
 
 from pydantic import BaseModel, Field, ConfigDict
 
+from app.domain.models.agent_run import AgentTask, RunStatus, TaskStatus
 from app.domain.models.event import Event, PlanEvent, ToolEventStatus, ToolEvent, StepEvent
 from app.domain.models.file import File
 from app.domain.models.plan import ExecutionStatus
+from app.domain.models.research import ResearchPlan, ReviewResult
+from app.interfaces.schemas.research import ResearchSourceResponse
 
 
 class BaseEventData(BaseModel):
     """基础事件数据"""
     event_id: Optional[str] = None  # 事件id
     created_at: datetime = Field(default_factory=datetime.now)  # 事件时间
+    schema_version: str = "1.0"
+    session_id: str | None = None
+    run_id: str | None = None
+    task_id: str | None = None
+    attempt_id: str | None = None
+    agent_id: str | None = None
+    parent_event_id: str | None = None
+    sequence_no: int | None = None
 
     # pydantic v2写法，序列化时将datetime转换为时间戳
     model_config = ConfigDict(json_encoders={
@@ -32,15 +43,25 @@ class BaseEventData(BaseModel):
         return {
             "event_id": event.id,
             "created_at": int(event.created_at.timestamp()),
+            "schema_version": event.schema_version,
+            "session_id": event.session_id,
+            "run_id": event.run_id,
+            "task_id": event.task_id,
+            "attempt_id": event.attempt_id,
+            "agent_id": event.agent_id,
+            "parent_event_id": event.parent_event_id,
+            "sequence_no": event.sequence_no,
         }
 
     @classmethod
     def from_event(cls, event: Event) -> Self:
         """从事件Domain模型中构建基础事件数据"""
-        return cls(
-            **cls.base_event_data(event),
-            **event.model_dump(mode="json", exclude={"id", "type", "created_at"}),
+        base_fields = set(cls.base_event_data(event)) - {"event_id"}
+        payload = event.model_dump(
+            mode="json",
+            exclude={"id", "type", "created_at", *base_fields},
         )
+        return cls(**cls.base_event_data(event), **payload)
 
 
 class BaseSSEEvent(BaseModel):
@@ -215,6 +236,67 @@ class ErrorSSEEvent(BaseSSEEvent):
     data: ErrorEventData
 
 
+class RunEventData(BaseEventData):
+    status: RunStatus
+    goal: str = ""
+    usage: Dict[str, Any] = Field(default_factory=dict)
+    error: Dict[str, Any] | None = None
+
+
+class RunSSEEvent(BaseSSEEvent):
+    event: Literal["run"] = "run"
+    data: RunEventData
+
+
+class ResearchPlanEventData(BaseEventData):
+    plan: ResearchPlan
+    status: str
+
+
+class ResearchPlanSSEEvent(BaseSSEEvent):
+    event: Literal["research_plan"] = "research_plan"
+    data: ResearchPlanEventData
+
+
+class ResearchTaskEventData(BaseEventData):
+    task: AgentTask
+    status: TaskStatus
+
+
+class ResearchTaskSSEEvent(BaseSSEEvent):
+    event: Literal["research_task"] = "research_task"
+    data: ResearchTaskEventData
+
+
+class ResearchSourceEventData(BaseEventData):
+    source: ResearchSourceResponse
+
+
+class ResearchSourceSSEEvent(BaseSSEEvent):
+    event: Literal["research_source"] = "research_source"
+    data: ResearchSourceEventData
+
+
+class ResearchReviewEventData(BaseEventData):
+    review: ReviewResult
+
+
+class ResearchReviewSSEEvent(BaseSSEEvent):
+    event: Literal["research_review"] = "research_review"
+    data: ResearchReviewEventData
+
+
+class ResearchUsageEventData(BaseEventData):
+    budget: Dict[str, Any] = Field(default_factory=dict)
+    usage: Dict[str, Any] = Field(default_factory=dict)
+    remaining: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchUsageSSEEvent(BaseSSEEvent):
+    event: Literal["research_usage"] = "research_usage"
+    data: ResearchUsageEventData
+
+
 # 定义Agent流式事件类型集合
 AgentSSEEvent = Union[
     CommonSSEEvent,
@@ -226,6 +308,12 @@ AgentSSEEvent = Union[
     DoneSSEEvent,
     ErrorSSEEvent,
     WaitSSEEvent,
+    RunSSEEvent,
+    ResearchPlanSSEEvent,
+    ResearchTaskSSEEvent,
+    ResearchSourceSSEEvent,
+    ResearchReviewSSEEvent,
+    ResearchUsageSSEEvent,
 ]
 
 
