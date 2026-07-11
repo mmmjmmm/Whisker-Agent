@@ -15,6 +15,7 @@ import type {
   StepEvent,
   ToolEvent,
   SessionFile,
+  TaskGraph,
 } from "@/lib/api/types";
 
 /** 后端返回的原始事件（可能用 event 或 type 表示类型） */
@@ -219,6 +220,9 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
       }
       case "tool": {
         const tool = ev.data as ToolEvent;
+        if (tool.task_id) {
+          break;
+        }
         const toolCallId = (tool as { tool_call_id?: string }).tool_call_id;
 
         if (lastStepId !== null) {
@@ -278,6 +282,8 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
       }
       case "title":
       case "plan":
+      case "task_graph":
+      case "task":
       case "wait":
       case "done":
         break;
@@ -318,4 +324,63 @@ export function getLatestPlanFromEvents(events: SSEEventData[]): PlanStep[] {
     }
   }
   return steps;
+}
+
+export type TeamProjection = {
+  graph: TaskGraph;
+  toolsByTask: Record<string, ToolEvent[]>;
+};
+
+/** 将 Team Graph、Task 和 Tool 事件归并为刷新后可恢复的最新投影。 */
+export function getLatestTeamProjection(
+  events: SSEEventData[],
+): TeamProjection | null {
+  let graph: TaskGraph | null = null;
+  let toolsByTask: Record<string, ToolEvent[]> = {};
+
+  for (const event of events) {
+    if (event.type === "task_graph") {
+      const nextGraph = structuredClone(event.data.graph);
+      if (graph === null || graph.id !== nextGraph.id) {
+        toolsByTask = {};
+      }
+      graph = nextGraph;
+      continue;
+    }
+
+    if (event.type === "task" && graph && event.data.graph_id === graph.id) {
+      graph.tasks = graph.tasks.map((task) =>
+        task.id === event.data.task.id
+          ? structuredClone(event.data.task)
+          : task,
+      );
+      continue;
+    }
+
+    if (event.type !== "tool" || !event.data.task_id || !graph) {
+      continue;
+    }
+    if (event.data.graph_id && event.data.graph_id !== graph.id) {
+      continue;
+    }
+    if (!graph.tasks.some((task) => task.id === event.data.task_id)) {
+      continue;
+    }
+
+    const taskId = event.data.task_id;
+    const tools = [...(toolsByTask[taskId] ?? [])];
+    const index = event.data.tool_call_id
+      ? tools.findIndex(
+          (tool) => tool.tool_call_id === event.data.tool_call_id,
+        )
+      : -1;
+    if (index >= 0) {
+      tools[index] = event.data;
+    } else {
+      tools.push(event.data);
+    }
+    toolsByTask[taskId] = tools;
+  }
+
+  return graph ? { graph, toolsByTask } : null;
 }

@@ -12,6 +12,71 @@ export type ApiResponse<T = unknown> = {
  */
 export type SessionStatus = "pending" | "running" | "waiting" | "completed";
 
+export type AgentMode = "react" | "team";
+
+export type TeamCapability =
+  | "analysis"
+  | "search"
+  | "browser"
+  | "file_read"
+  | "file_write"
+  | "shell"
+  | "mcp"
+  | "a2a";
+
+export type TeamTaskStatus =
+  | "pending"
+  | "running"
+  | "retrying"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+export type TaskGraphStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export type SourceRef = {
+  title: string;
+  url: string;
+  snippet?: string | null;
+};
+
+export type WorkerResult = {
+  success: boolean;
+  summary: string;
+  sources: SourceRef[];
+  artifacts: string[];
+  notes: string[];
+};
+
+export type TeamTask = {
+  id: string;
+  description: string;
+  dependencies: string[];
+  capability: TeamCapability;
+  success_criteria: string;
+  status: TeamTaskStatus;
+  assigned_agent_id?: string | null;
+  attempt_count: number;
+  result?: WorkerResult | null;
+  error?: string | null;
+};
+
+export type TaskGraph = {
+  id: string;
+  title: string;
+  goal: string;
+  tasks: TeamTask[];
+  status: TaskGraphStatus;
+  error?: string | null;
+};
+
 /**
  * 执行状态
  */
@@ -48,6 +113,11 @@ export type AgentConfig = {
   max_iterations?: number;
   max_retries?: number;
   max_search_results?: number;
+  team_max_tasks?: number;
+  team_max_workers?: number;
+  team_max_task_retries?: number;
+  team_task_timeout_seconds?: number;
+  team_max_worker_iterations?: number;
   [key: string]: unknown;
 };
 
@@ -184,6 +254,7 @@ export type ChatMessage = {
     filename: string;
     [key: string]: unknown;
   }>;
+  agent_mode?: AgentMode | null;
   [key: string]: unknown;
 };
 
@@ -194,6 +265,7 @@ export type ChatMessage = {
 export type ChatParams = {
   message?: string;
   attachments?: string[];
+  mode?: AgentMode;
   [key: string]: unknown;
 };
 
@@ -236,11 +308,16 @@ export type StepEvent = {
  * 工具调用事件
  */
 export type ToolEvent = {
+  tool_call_id?: string;
   name: string;
   function: string;
   args: Record<string, unknown>;
   content?: unknown;
   status?: ToolEventStatus;
+  graph_id?: string;
+  task_id?: string;
+  agent_id?: string;
+  attempt?: number;
   [key: string]: unknown;
 };
 
@@ -252,6 +329,8 @@ export type SSEEventType =
   | "title"
   | "plan"
   | "step"
+  | "task_graph"
+  | "task"
   | "tool"
   | "wait"
   | "done"
@@ -265,6 +344,21 @@ export type SSEEventData =
   | { type: "title"; data: { title: string } }
   | { type: "plan"; data: PlanEvent }
   | { type: "step"; data: StepEvent }
+  | {
+      type: "task_graph";
+      data: { graph: TaskGraph; event_id?: string; created_at?: number };
+    }
+  | {
+      type: "task";
+      data: {
+        graph_id: string;
+        task: TeamTask;
+        agent_id?: string | null;
+        attempt: number;
+        event_id?: string;
+        created_at?: number;
+      };
+    }
   | { type: "tool"; data: ToolEvent }
   | { type: "wait"; data: Record<string, unknown> }
   | { type: "done"; data: Record<string, unknown> }
@@ -304,4 +398,3 @@ export type ViewShellParams = {
   shell_session_id: string;
   [key: string]: unknown;
 };
-
