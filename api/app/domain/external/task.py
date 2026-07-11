@@ -41,6 +41,10 @@ class Task(Protocol):
         """取消当前任务"""
         ...
 
+    async def wait(self) -> None:
+        """等待任务执行协程及其清理逻辑结束"""
+        ...
+
     @property
     def input_stream(self) -> MessageQueue:
         """只读属性，返回任务的输入流"""

@@ -10,10 +10,19 @@ from app.interfaces.schemas.session import ChatRequest
 
 class RejectingAgentService:
     def __init__(self):
-        self.validated = []
+        self.prepared = []
 
-    async def validate_chat_request(self, session_id, mode, has_message):
-        self.validated.append((session_id, mode, has_message))
+    async def prepare_chat(
+        self,
+        session_id,
+        message,
+        attachments,
+        mode,
+        timestamp=None,
+    ):
+        self.prepared.append(
+            (session_id, message, attachments, mode, timestamp)
+        )
         raise ConflictError("Team 运行中不接受新消息")
 
     async def chat(self, **kwargs):
@@ -30,6 +39,8 @@ def test_chat_route_preflights_conflict_before_sse_response():
                 ChatRequest(message="new", mode=AgentMode.TEAM),
                 service,
             )
-        assert service.validated == [("session", AgentMode.TEAM, True)]
+        assert service.prepared == [
+            ("session", "new", [], AgentMode.TEAM, None)
+        ]
 
     asyncio.run(scenario())

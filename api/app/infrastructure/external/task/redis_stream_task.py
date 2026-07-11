@@ -86,6 +86,13 @@ class RedisStreamTask(Task):
         self._cleanup_registry()
         return True
 
+    async def wait(self) -> None:
+        """等待 Runner 的取消快照和资源清理完成。"""
+        execution_task = self._execution_task
+        if execution_task is None or execution_task is asyncio.current_task():
+            return
+        await asyncio.gather(execution_task, return_exceptions=True)
+
     @property
     def input_stream(self) -> MessageQueue:
         return self._input_stream

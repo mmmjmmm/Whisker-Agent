@@ -38,6 +38,7 @@ class InMemorySessionRepository:
 
     async def add_event(self, session_id, event):
         self.persisted_events.append(event)
+        self.value.events.append(event)
 
     async def update_status(self, session_id, status):
         self.value.status = status
@@ -211,6 +212,9 @@ class FinishedTask:
     async def invoke(self):
         self.invoked = True
 
+    async def wait(self):
+        pass
+
 
 def test_agent_service_writes_mode_into_user_input_event():
     async def scenario():
@@ -246,5 +250,129 @@ def test_agent_service_writes_mode_into_user_input_event():
         assert events[0].agent_mode is AgentMode.TEAM
         assert queued.agent_mode is AgentMode.TEAM
         assert task.invoked
+
+    asyncio.run(scenario())
+
+
+class RunningTask(FinishedTask):
+    def __init__(self):
+        super().__init__()
+        self.cancelled = False
+        self.wait_started = asyncio.Event()
+        self.allow_finish = asyncio.Event()
+
+    @property
+    def done(self):
+        return False
+
+    def cancel(self):
+        self.cancelled = True
+        return True
+
+    async def wait(self):
+        self.wait_started.set()
+        await self.allow_finish.wait()
+
+
+def test_stop_session_waits_for_runner_cleanup_before_returning():
+    async def scenario():
+        session = running_team_session()
+        uow = FakeUow(session)
+        task = RunningTask()
+
+        class TaskRegistry:
+            @classmethod
+            def get(cls, task_id):
+                return task
+
+        service = object.__new__(AgentService)
+        service._uow = uow
+        service._task_cls = TaskRegistry
+
+        stopping = asyncio.create_task(service.stop_session("session"))
+        await asyncio.sleep(0)
+
+        assert task.cancelled
+        assert task.wait_started.is_set()
+        assert not stopping.done()
+        assert session.status is SessionStatus.RUNNING
+
+        task.allow_finish.set()
+        await stopping
+
+        assert session.status is SessionStatus.COMPLETED
+
+    asyncio.run(scenario())
+
+
+class PreparedTask(FinishedTask):
+    def __init__(self, task_id):
+        super().__init__()
+        self.id = task_id
+
+
+def test_concurrent_team_prepare_creates_one_run_and_rejects_the_other():
+    async def scenario():
+        session = Session(id="session", status=SessionStatus.PENDING)
+        uow = FakeUow(session)
+        tasks = {}
+        create_started = asyncio.Event()
+        allow_create = asyncio.Event()
+        create_count = 0
+
+        class TaskRegistry:
+            @classmethod
+            def get(cls, task_id):
+                return tasks.get(task_id)
+
+        service = object.__new__(AgentService)
+        service._uow = uow
+        service._uow_factory = lambda: uow
+        service._task_cls = TaskRegistry
+
+        async def create_task(current):
+            nonlocal create_count
+            create_count += 1
+            create_started.set()
+            await allow_create.wait()
+            task = PreparedTask(f"task-{create_count}")
+            tasks[task.id] = task
+            current.task_id = task.id
+            return task
+
+        service._create_task = create_task
+
+        first = asyncio.create_task(
+            service.prepare_chat(
+                "session",
+                "first",
+                [],
+                AgentMode.TEAM,
+            )
+        )
+        await create_started.wait()
+        second = asyncio.create_task(
+            service.prepare_chat(
+                "session",
+                "second",
+                [],
+                AgentMode.TEAM,
+            )
+        )
+        await asyncio.sleep(0)
+        allow_create.set()
+
+        first_result, second_result = await asyncio.gather(
+            first,
+            second,
+            return_exceptions=True,
+        )
+
+        assert not isinstance(first_result, Exception)
+        assert isinstance(second_result, ConflictError)
+        assert create_count == 1
+        assert session.status is SessionStatus.RUNNING
+        assert len(uow.session.persisted_events) == 1
+        assert uow.session.persisted_events[0].agent_mode is AgentMode.TEAM
 
     asyncio.run(scenario())
