@@ -5,8 +5,9 @@ from app.domain.models.event import BaseEvent
 
 
 class EventSequencer:
-    def __init__(self, run_id: str) -> None:
+    def __init__(self, run_id: str, session_id: str | None = None) -> None:
         self.run_id = run_id
+        self.session_id = session_id
         self.queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
         self.sequence_no = 0
         self._closed = False
@@ -29,4 +30,6 @@ class EventSequencer:
             self.sequence_no += 1
             event.sequence_no = self.sequence_no
             event.run_id = self.run_id
+            if self.session_id is not None:
+                event.session_id = self.session_id
             yield event

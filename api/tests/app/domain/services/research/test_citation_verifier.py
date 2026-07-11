@@ -9,7 +9,10 @@ from app.domain.models.research import (
     ResearchClaim,
     ResearchSource,
 )
-from app.domain.services.research.citation_verifier import CitationVerifier
+from app.domain.services.research.citation_verifier import (
+    CitationCheckBatch,
+    CitationVerifier,
+)
 
 
 class FakeRuntime:
@@ -101,3 +104,22 @@ async def test_missing_snapshot_is_rejected_without_semantic_call() -> None:
     assert result.checks[0].status == ClaimSupportStatus.UNSUPPORTED
     assert runtime.calls == []
 
+
+async def test_claims_are_semantically_verified_in_one_batch() -> None:
+    _draft, claim, evidence, source = citation_fixture()
+    runtime = FakeRuntime([CitationCheckBatch(checks=[CitationCheck(
+        claim_id=claim.id,
+        status=ClaimSupportStatus.SUPPORTED,
+        reason="direct support",
+    )])])
+    verifier = CitationVerifier(runtime=runtime, source_storage=FakeStorage())
+
+    checks = await verifier.verify_claims(
+        [claim],
+        [evidence],
+        [source],
+    )
+
+    assert checks[0].status == ClaimSupportStatus.SUPPORTED
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0]["output_type"] is CitationCheckBatch

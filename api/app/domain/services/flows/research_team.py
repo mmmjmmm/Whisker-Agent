@@ -63,7 +63,10 @@ class ResearchTeamFlow(BaseFlow):
 
     async def invoke(self, request: FlowRequest):
         self._done = False
-        sequencer = EventSequencer(request.command.run_id)
+        sequencer = EventSequencer(
+            request.command.run_id,
+            session_id=request.command.session_id,
+        )
         pipeline = asyncio.create_task(
             self._run_pipeline(request, sequencer)
         )
@@ -87,11 +90,20 @@ class ResearchTeamFlow(BaseFlow):
             sequencer: EventSequencer,
     ) -> None:
         command = request.command
-        run = await self._prepare_run(command)
+        run = AgentRun(
+            id=command.run_id,
+            session_id=command.session_id,
+            mode=command.mode,
+            goal=command.message,
+            budget_snapshot=command.budget,
+        )
+        run_persisted = False
         heartbeat_stop = asyncio.Event()
         heartbeat_task: asyncio.Task | None = None
         done_published = False
         try:
+            run = await self._prepare_run(command)
+            run_persisted = True
             await sequencer.publish(RunEvent(
                 session_id=run.session_id,
                 status=run.status,
@@ -128,7 +140,8 @@ class ResearchTeamFlow(BaseFlow):
                 "type": "RunTimeout",
                 "message": "research run timed out",
             }
-            await self._finish_run(run)
+            if run_persisted:
+                await self._finish_run(run)
             await sequencer.publish(ErrorEvent(
                 session_id=run.session_id,
                 error="research run timed out",
@@ -136,7 +149,8 @@ class ResearchTeamFlow(BaseFlow):
         except asyncio.CancelledError:
             run.status = RunStatus.CANCELLED
             run.error = {"type": "RunCancelled", "message": "run cancelled"}
-            await self._finish_run(run)
+            if run_persisted:
+                await self._finish_run(run)
             raise
         except Exception as exc:
             run.status = RunStatus.FAILED
@@ -144,26 +158,34 @@ class ResearchTeamFlow(BaseFlow):
                 "type": type(exc).__name__,
                 "message": str(exc),
             }
-            await self._finish_run(run)
+            if run_persisted:
+                await self._finish_run(run)
             await sequencer.publish(ErrorEvent(
                 session_id=run.session_id,
                 error=f"research team flow failed: {exc}",
             ))
         finally:
-            if not done_published:
-                await sequencer.publish(RunEvent(
-                    session_id=run.session_id,
-                    status=run.status,
-                    goal=run.goal,
-                    usage=run.usage.model_dump(mode="json"),
-                    error=run.error,
-                ))
-                await sequencer.publish(DoneEvent(session_id=run.session_id))
-            heartbeat_stop.set()
-            if heartbeat_task is not None:
-                heartbeat_task.cancel()
-                await asyncio.gather(heartbeat_task, return_exceptions=True)
-            await sequencer.close()
+            try:
+                if not done_published:
+                    await sequencer.publish(RunEvent(
+                        session_id=run.session_id,
+                        status=run.status,
+                        goal=run.goal,
+                        usage=run.usage.model_dump(mode="json"),
+                        error=run.error,
+                    ))
+                    await sequencer.publish(DoneEvent(
+                        session_id=run.session_id,
+                    ))
+            finally:
+                heartbeat_stop.set()
+                if heartbeat_task is not None:
+                    heartbeat_task.cancel()
+                    await asyncio.gather(
+                        heartbeat_task,
+                        return_exceptions=True,
+                    )
+                await sequencer.close()
 
     async def _execute_stages(
             self,
@@ -285,6 +307,26 @@ class ResearchTeamFlow(BaseFlow):
 
         run.status = RunStatus.SYNTHESIZING
         await self._save_run(run)
+        claim_checks = await components.citation_verifier.verify_claims(
+            claims,
+            evidence,
+            sources,
+        )
+        self._apply_checks(claims, claim_checks)
+        await self._save_claims(claims)
+        if not any(
+            claim.support_status in {
+                ClaimSupportStatus.SUPPORTED,
+                ClaimSupportStatus.PARTIALLY_SUPPORTED,
+            }
+            for claim in claims
+        ):
+            if components.budget_manager is not None:
+                run.usage = await components.budget_manager.snapshot()
+            run.status = RunStatus.FAILED
+            await self._finish_run(run)
+            return "研究未获得可验证证据，未生成事实性结论。"
+
         draft = await components.synthesizer.synthesize(claims, evidence, review)
         verification = await components.citation_verifier.verify(
             draft,

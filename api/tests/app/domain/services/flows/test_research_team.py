@@ -1,10 +1,12 @@
+import asyncio
+
 from app.domain.models.agent_run import (
     AgentMode,
     AgentRun,
     CapabilityProfile,
     RunStatus,
 )
-from app.domain.models.event import DoneEvent, ResearchPlanEvent
+from app.domain.models.event import DoneEvent, ErrorEvent, ResearchPlanEvent
 from app.domain.models.message import Message
 from app.domain.models.research import (
     AttachmentIngestResult,
@@ -114,6 +116,9 @@ class FakeSynthesizer:
 
 
 class FakeVerifier:
+    async def verify_claims(self, claims, evidence, sources):
+        return []
+
     async def verify(self, draft, claims, evidence, sources):
         return CitationVerificationResult(draft=draft, checks=[])
 
@@ -227,4 +232,37 @@ async def test_flow_reuses_pending_run_created_by_service() -> None:
     events = [event async for event in flow.invoke(request)]
 
     assert runs.add_count == 0
+    assert sum(isinstance(event, DoneEvent) for event in events) == 1
+
+
+async def test_invalid_persisted_run_closes_event_stream() -> None:
+    runs = FakeRunRepository()
+    runs.runs["run-1"] = AgentRun(
+        id="run-1",
+        session_id="session-1",
+        mode=AgentMode.RESEARCH_TEAM,
+        status=RunStatus.RUNNING,
+        goal="already running",
+    )
+    flow = ResearchTeamFlow(
+        uow_factory=lambda: FakeUow(runs, FakeResearchRepository()),
+        session_id="session-1",
+        component_factory=lambda *_args: None,
+        attachment_ingestor=FakeIngestor(),
+        renderer=FakeRenderer(),
+    )
+    request = FlowRequest(
+        command=StartRunCommand(
+            run_id="run-1",
+            session_id="session-1",
+            mode=AgentMode.RESEARCH_TEAM,
+            message="research",
+        ),
+        message=Message(message="research"),
+    )
+
+    async with asyncio.timeout(0.2):
+        events = [event async for event in flow.invoke(request)]
+
+    assert sum(isinstance(event, ErrorEvent) for event in events) == 1
     assert sum(isinstance(event, DoneEvent) for event in events) == 1
