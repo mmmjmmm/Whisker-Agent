@@ -12,6 +12,7 @@ from app.domain.models.event import (
     TitleEvent,
 )
 from app.domain.models.file import File
+from app.domain.models.memory import Memory
 from app.domain.models.message import Message
 from app.domain.models.session import SessionStatus
 from app.domain.models.team import (
@@ -20,8 +21,17 @@ from app.domain.models.team import (
     TeamTaskStatus,
 )
 from app.domain.repositories.uow import IUnitOfWork
+from app.domain.services.agents.task_worker import TaskWorker
+from app.domain.services.agents.team_planner import TeamPlannerAgent
+from app.domain.services.agents.team_synthesizer import TeamSynthesizerAgent
 from app.domain.services.flows.base import BaseFlow
 from app.domain.services.team.graph import TaskGraphError, build_task_graph
+from app.domain.services.team.orchestrator import TeamOrchestrator
+from app.domain.services.team.policy import ToolPolicy
+from app.domain.services.tools.browser import BrowserTool
+from app.domain.services.tools.file import FileTool
+from app.domain.services.tools.search import SearchTool
+from app.domain.services.tools.shell import ShellTool
 
 
 @dataclass
@@ -232,3 +242,91 @@ class TeamFlow(BaseFlow):
         )
         self._done = True
         return events
+
+
+def build_team_flow(
+    *,
+    uow_factory,
+    session_id,
+    agent_config,
+    llm,
+    json_parser,
+    browser,
+    sandbox,
+    search_engine,
+    mcp_tool,
+    a2a_tool,
+) -> TeamFlow:
+    """使用本轮共享基础设施构建一个短生命周期 TeamFlow。"""
+    tools = [
+        FileTool(sandbox=sandbox),
+        ShellTool(sandbox=sandbox),
+        BrowserTool(browser=browser),
+        SearchTool(search_engine=search_engine),
+        mcp_tool,
+        a2a_tool,
+    ]
+    policy = ToolPolicy(tools)
+    planner = TeamPlannerAgent(
+        uow_factory=uow_factory,
+        session_id=session_id,
+        agent_config=agent_config,
+        llm=llm,
+        json_parser=json_parser,
+        tools=[],
+        memory=Memory(),
+        persist_memory=False,
+        allowed_tool_names=frozenset(),
+    )
+    worker_config = agent_config.model_copy(
+        update={
+            "max_iterations": agent_config.team_max_worker_iterations,
+        }
+    )
+
+    def worker_factory(graph_id, agent_id, task, attempt):
+        return TaskWorker(
+            uow_factory=uow_factory,
+            session_id=session_id,
+            agent_config=worker_config,
+            llm=llm,
+            json_parser=json_parser,
+            tools=tools,
+            memory=Memory(),
+            persist_memory=False,
+            allowed_tool_names=policy.allowed_names(task.capability),
+            graph_id=graph_id,
+            task=task,
+            agent_id=agent_id,
+            attempt=attempt,
+        )
+
+    orchestrator = TeamOrchestrator(
+        worker_factory=worker_factory,
+        is_parallel_safe=policy.is_parallel_safe,
+        max_workers=agent_config.team_max_workers,
+        max_retries=agent_config.team_max_task_retries,
+        timeout_seconds=agent_config.team_task_timeout_seconds,
+    )
+
+    def synthesizer_factory():
+        return TeamSynthesizerAgent(
+            uow_factory=uow_factory,
+            session_id=session_id,
+            agent_config=agent_config,
+            llm=llm,
+            json_parser=json_parser,
+            tools=[],
+            memory=Memory(),
+            persist_memory=False,
+            allowed_tool_names=frozenset(),
+        )
+
+    return TeamFlow(
+        uow_factory=uow_factory,
+        session_id=session_id,
+        team_max_tasks=agent_config.team_max_tasks,
+        planner=planner,
+        orchestrator=orchestrator,
+        synthesizer_factory=synthesizer_factory,
+    )

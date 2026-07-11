@@ -29,9 +29,13 @@ from app.domain.models.file import File
 from app.domain.models.message import Message
 from app.domain.models.search import SearchResults
 from app.domain.models.session import SessionStatus
+from app.domain.models.team import AgentMode
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.uow import IUnitOfWork
+from app.domain.services.flows.base import BaseFlow
 from app.domain.services.flows.planner_react import PlannerReActFlow
+from app.domain.services.flows.router import FlowRouter
+from app.domain.services.flows.team import build_team_flow
 from app.domain.services.tools.a2a import A2ATool
 from app.domain.services.tools.mcp import MCPTool
 from app.infrastructure.storage.oss import get_oss
@@ -67,7 +71,7 @@ class AgentTaskRunner(TaskRunner):
         self._a2a_tool = A2ATool()
         self._file_storage = file_storage
         self._browser = browser
-        self._flow = PlannerReActFlow(
+        self._react_flow = PlannerReActFlow(
             uow_factory=uow_factory,
             llm=llm,
             agent_config=agent_config,
@@ -79,6 +83,23 @@ class AgentTaskRunner(TaskRunner):
             mcp_tool=self._mcp_tool,
             a2a_tool=self._a2a_tool,
         )
+        self._flow = self._react_flow
+        self._flow_router = FlowRouter(
+            react_flow=self._react_flow,
+            team_flow_factory=lambda: build_team_flow(
+                uow_factory=uow_factory,
+                session_id=session_id,
+                agent_config=agent_config,
+                llm=llm,
+                json_parser=json_parser,
+                browser=browser,
+                sandbox=sandbox,
+                search_engine=search_engine,
+                mcp_tool=self._mcp_tool,
+                a2a_tool=self._a2a_tool,
+            ),
+        )
+        self._active_flow: BaseFlow | None = None
 
     async def _put_and_add_event(self, task: Task, event: Event) -> None:
         """往指定任务的消息队列中添加事件"""
@@ -312,8 +333,12 @@ class AgentTaskRunner(TaskRunner):
         except Exception as e:
             logger.exception(f"AgentTaskRunner生成工具内容失败: {str(e)}")
 
-    async def _run_flow(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
-        """根据消息对象运行PlannerReActFlow"""
+    async def _run_flow(
+            self,
+            message: Message,
+            mode: AgentMode = AgentMode.REACT,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """根据显式 mode 运行 React 或 Team Flow。"""
         # 1.判断传递的消息是否为空
         if not message.message:
             logger.warning(f"AgentTaskRunner接收了一条空消息")
@@ -321,7 +346,8 @@ class AgentTaskRunner(TaskRunner):
             return
 
         # 2.调用流并运行获取事件信息
-        async for event in self._flow.invoke(message):
+        self._active_flow = self._flow_router.resolve(mode)
+        async for event in self._active_flow.invoke(message):
             # 3.判断是否为工具事件，如果是则额外处理
             if isinstance(event, ToolEvent):
                 await self._handle_tool_event(event)
@@ -331,6 +357,13 @@ class AgentTaskRunner(TaskRunner):
 
             # 5.将事件直接返回
             yield event
+
+    async def _persist_cancellation(self, task: Task) -> None:
+        """由 Runner 按顺序持久化活动 Flow 的取消快照。"""
+        if self._active_flow:
+            for cancel_event in await self._active_flow.cancel_events():
+                await self._put_and_add_event(task, cancel_event)
+        await self._put_and_add_event(task, DoneEvent())
 
     async def _cleanup_tools(self) -> None:
         """清理MCP和A2A工具资源，确保在同一任务上下文中释放
@@ -367,8 +400,11 @@ class AgentTaskRunner(TaskRunner):
                 # 4.判断事件类型是否为消息事件，如果是则处理消息并将附件同步到沙箱中
                 if isinstance(event, MessageEvent):
                     message = event.message or ""
+                    mode = event.agent_mode or AgentMode.REACT
                     await self._sync_message_attachments_to_sandbox(event)
                     logger.info(f"AgentTaskRunner接收到新消息: {message[:50]}...")
+                else:
+                    mode = AgentMode.REACT
 
                 # 5.将消息事件转换称消息对象
                 message_obj = Message(
@@ -377,7 +413,7 @@ class AgentTaskRunner(TaskRunner):
                 )
 
                 # 6.传递消息对象并运行PlannerReActFlow
-                async for event in self._run_flow(message_obj):
+                async for event in self._run_flow(message_obj, mode):
                     # 7.将得到的事件添加到消息队列中
                     await self._put_and_add_event(task, event)
 
@@ -410,7 +446,7 @@ class AgentTaskRunner(TaskRunner):
         except asyncio.CancelledError:
             # 13.异步任务被取消，推送结束事件并跟新状态
             logger.info(f"AgentTaskRunner任务运行取消")
-            await self._put_and_add_event(task, DoneEvent())
+            await self._persist_cancellation(task)
             async with self._uow:
                 await self._uow.session.update_status(self._session_id, SessionStatus.COMPLETED)
             raise
