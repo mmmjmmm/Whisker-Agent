@@ -339,6 +339,12 @@ export function getLatestTeamProjection(
   let toolsByTask: Record<string, ToolEvent[]> = {};
 
   for (const event of events) {
+    if (event.type === "message" && event.data.role === "user") {
+      graph = null;
+      toolsByTask = {};
+      continue;
+    }
+
     if (event.type === "task_graph") {
       const nextGraph = structuredClone(event.data.graph);
       if (graph === null || graph.id !== nextGraph.id) {

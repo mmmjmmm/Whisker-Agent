@@ -2,6 +2,8 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from pydantic import ValidationError as PydanticValidationError
+
 from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
@@ -115,7 +117,7 @@ class TeamFlow(BaseFlow):
                     self._team_max_tasks,
                 )
                 break
-            except TaskGraphError as exc:
+            except (TaskGraphError, PydanticValidationError) as exc:
                 validation_error = str(exc)
             except Exception as exc:
                 self._done = True

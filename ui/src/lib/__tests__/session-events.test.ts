@@ -111,4 +111,20 @@ describe("getLatestTeamProjection", () => {
     expect(eventsToTimeline(events)).toHaveLength(1);
     expect(getLatestTeamProjection(events)).toBeNull();
   });
+
+  it("clears an old team graph when a new user turn starts", () => {
+    const events = [
+      { type: "task_graph", data: { graph: graphFixture } },
+      {
+        type: "message",
+        data: {
+          role: "user",
+          message: "switch back",
+          agent_mode: "react",
+        },
+      },
+    ] as SSEEventData[];
+
+    expect(getLatestTeamProjection(events)).toBeNull();
+  });
 });

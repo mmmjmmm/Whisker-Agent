@@ -185,6 +185,51 @@ def test_team_flow_replans_once_and_emits_ordered_terminal_events():
     asyncio.run(scenario())
 
 
+class SchemaReplanningPlanner:
+    def __init__(self):
+        self.calls = 0
+
+    async def create_graph(self, message, validation_error=None):
+        self.calls += 1
+        if self.calls == 1:
+            return PlannedTaskGraph.model_validate(
+                {
+                    "title": "invalid",
+                    "goal": "invalid",
+                    "tasks": [
+                        {
+                            "id": "a",
+                            "description": "missing capability",
+                            "success_criteria": "done",
+                        }
+                    ],
+                }
+            )
+        assert validation_error and "capability" in validation_error
+        return valid_plan()
+
+
+def test_team_flow_replans_after_structured_schema_validation_error():
+    async def scenario():
+        planner = SchemaReplanningPlanner()
+        uow = FakeUow()
+        flow = TeamFlow(
+            uow_factory=lambda: uow,
+            session_id="session-1",
+            team_max_tasks=5,
+            planner=planner,
+            orchestrator=CompletingOrchestrator(),
+            synthesizer_factory=FakeSynthesizer,
+        )
+
+        events = [event async for event in flow.invoke(Message(message="research"))]
+
+        assert planner.calls == 2
+        assert events[-1].type == "done"
+
+    asyncio.run(scenario())
+
+
 class BlockingOrchestrator:
     def __init__(self):
         self.started = asyncio.Event()
