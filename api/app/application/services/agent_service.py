@@ -7,11 +7,17 @@
 """
 import asyncio
 import logging
+import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import AsyncGenerator, Optional, List, Type, Callable
 
 from pydantic import TypeAdapter
 
+from app.application.errors.exceptions import (
+    ResearchTeamDisabledError,
+    RunAlreadyActiveError,
+)
 from app.domain.external.file_storage import FileStorage
 from app.domain.external.json_parser import JSONParser
 from app.domain.external.llm import LLM
@@ -19,12 +25,25 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
 from app.domain.models.app_config import AgentConfig, MCPConfig, A2AConfig
+from app.domain.models.agent_run import AgentMode, AgentRun, RunStatus
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent, Event, DoneEvent, WaitEvent
+from app.domain.models.run_command import StartRunCommand
 from app.domain.models.session import Session, SessionStatus
 from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.flows.base import BaseFlow
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PreparedChat:
+    session_id: str
+    command: StartRunCommand | None
+    task: Task | None
+    initial_events: list[BaseEvent]
+    latest_event_id: str | None
+    created_task: bool
 
 
 class AgentService:
@@ -42,6 +61,8 @@ class AgentService:
             json_parser: JSONParser,
             search_engine: SearchEngine,
             file_storage: FileStorage,
+            research_team_enabled: bool = False,
+            research_flow_factory: Callable[[str], BaseFlow] | None = None,
     ) -> None:
         """构造函数，完成Agent服务初始化"""
         self._uow_factory = uow_factory
@@ -55,6 +76,8 @@ class AgentService:
         self._json_parser = json_parser
         self._search_engine = search_engine
         self._file_storage = file_storage
+        self._research_team_enabled = research_team_enabled
+        self._research_flow_factory = research_flow_factory
         logger.info(f"AgentService初始化成功")
 
     async def _get_task(self, session: Session) -> Optional[Task]:
@@ -67,29 +90,35 @@ class AgentService:
         # 2.调用人物类的get方法获取对应的任务实例
         return self._task_cls.get(task_id)
 
-    async def _create_task(self, session: Session) -> Task:
+    async def _create_task(
+            self,
+            session: Session,
+            mode: AgentMode,
+    ) -> Task:
         """根据传递的会话创建一个新任务"""
-        # 1.获取沙箱实例
         sandbox = None
-        sandbox_id = session.sandbox_id
-        if sandbox_id:
-            sandbox = await self._sandbox_cls.get(sandbox_id)
+        browser = None
+        if mode == AgentMode.REACT:
+            sandbox_id = session.sandbox_id
+            if sandbox_id:
+                sandbox = await self._sandbox_cls.get(sandbox_id)
+            if not sandbox:
+                sandbox = await self._sandbox_cls.create()
+                session.sandbox_id = sandbox.id
+                async with self._uow:
+                    await self._uow.session.save(session)
+            browser = await sandbox.get_browser()
+            if not browser:
+                logger.error(f"获取沙箱[{sandbox.id}]中的浏览器实例失败")
+                raise RuntimeError(f"获取沙箱[{sandbox.id}]中的浏览器实例失败")
+        elif self._research_flow_factory is None:
+            raise RuntimeError("ResearchTeamFlow 尚未配置")
 
-        # 2.判断是否能获取到沙箱(如果没有则创建)
-        if not sandbox:
-            # 3.沙箱不存在则创建一个新的(有可能被释放了)
-            sandbox = await self._sandbox_cls.create()
-            session.sandbox_id = sandbox.id
-            async with self._uow:
-                await self._uow.session.save(session)
-
-        # 4.从沙箱中获取浏览器实例
-        browser = await sandbox.get_browser()
-        if not browser:
-            logger.error(f"获取沙箱[{sandbox.id}]中的浏览器实例失败")
-            raise RuntimeError(f"获取沙箱[{sandbox.id}]中的浏览器实例失败")
-
-        # 5.创建AgentTaskRunner
+        research_flow_factory = (
+            (lambda: self._research_flow_factory(session.id))
+            if self._research_flow_factory is not None
+            else None
+        )
         task_runner = AgentTaskRunner(
             uow_factory=self._uow_factory,
             llm=self._llm,
@@ -102,9 +131,9 @@ class AgentService:
             browser=browser,
             search_engine=self._search_engine,
             sandbox=sandbox,
+            research_flow_factory=research_flow_factory,
         )
 
-        # 6.创建任务Task并更新会话中的信息
         task = self._task_cls.create(task_runner=task_runner)
         session.task_id = task.id
         async with self._uow:
@@ -126,6 +155,160 @@ class AgentService:
         except Exception as e:
             logger.warning(f"会话[{session_id}]后台更新未读消息计数失败: {e}")
 
+    async def prepare_chat(
+            self,
+            session_id: str,
+            message: str | None = None,
+            attachments: list[str] | None = None,
+            latest_event_id: str | None = None,
+            timestamp: datetime | None = None,
+            mode: AgentMode = AgentMode.REACT,
+            budget_profile: str = "default",
+    ) -> PreparedChat:
+        del budget_profile
+        resolved_mode = mode if isinstance(mode, AgentMode) else AgentMode(mode)
+        attachment_ids = list(attachments or [])
+
+        async with self._uow:
+            session = await self._uow.session.get_by_id(session_id)
+            active_run = await self._uow.agent_run.get_active_by_session(
+                session_id,
+            )
+        if session is None:
+            raise RuntimeError("任务会话不存在, 请核实后重试")
+
+        task = await self._get_task(session)
+        if message is None:
+            return PreparedChat(
+                session_id=session_id,
+                command=None,
+                task=task,
+                initial_events=[],
+                latest_event_id=latest_event_id,
+                created_task=False,
+            )
+
+        if active_run is not None:
+            raise RunAlreadyActiveError(
+                active_run.id,
+                active_run.status.value,
+            )
+        if (
+            resolved_mode == AgentMode.RESEARCH_TEAM
+            and not self._research_team_enabled
+        ):
+            raise ResearchTeamDisabledError()
+        if (
+            resolved_mode == AgentMode.RESEARCH_TEAM
+            and session.status in {SessionStatus.RUNNING, SessionStatus.WAITING}
+        ):
+            raise RunAlreadyActiveError(
+                session.task_id or session.id,
+                session.status.value,
+            )
+
+        created_task = False
+        if session.status != SessionStatus.RUNNING or task is None:
+            task = await self._create_task(session, resolved_mode)
+            created_task = True
+        if task is None:
+            raise RuntimeError(f"会话[{session_id}]创建任务失败")
+
+        command = StartRunCommand(
+            run_id=str(uuid.uuid4()),
+            session_id=session_id,
+            mode=resolved_mode,
+            message=message,
+            attachment_ids=attachment_ids,
+        )
+        if resolved_mode == AgentMode.RESEARCH_TEAM:
+            async with self._uow:
+                await self._uow.agent_run.add(AgentRun(
+                    id=command.run_id,
+                    session_id=session_id,
+                    mode=resolved_mode,
+                    status=RunStatus.PENDING,
+                    goal=message,
+                    budget_snapshot=command.budget,
+                ))
+
+        async with self._uow:
+            await self._uow.session.update_latest_message(
+                session_id=session_id,
+                message=message,
+                timestamp=timestamp or datetime.now(),
+            )
+            db_attachments = [
+                await self._uow.file.get_by_id(file_id)
+                for file_id in attachment_ids
+            ]
+
+        message_event = MessageEvent(
+            session_id=session_id,
+            run_id=command.run_id,
+            role="user",
+            message=message,
+            attachments=[
+                attachment
+                for attachment in db_attachments
+                if attachment is not None
+            ],
+        )
+        event_id = await task.input_stream.put(command.model_dump_json())
+        message_event.id = event_id
+        async with self._uow:
+            await self._uow.session.add_event(session_id, message_event)
+        await task.invoke()
+
+        return PreparedChat(
+            session_id=session_id,
+            command=command,
+            task=task,
+            initial_events=[message_event],
+            latest_event_id=latest_event_id,
+            created_task=created_task,
+        )
+
+    async def stream_prepared_chat(
+            self,
+            prepared: PreparedChat,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        session_id = prepared.session_id
+        latest_event_id = prepared.latest_event_id
+        try:
+            for event in prepared.initial_events:
+                yield event
+
+            task = prepared.task
+            while task and not task.done:
+                event_id, event_str = await task.output_stream.get(
+                    start_id=latest_event_id,
+                    block_ms=0,
+                )
+                latest_event_id = event_id
+                if event_str is None:
+                    continue
+                event = TypeAdapter(Event).validate_json(event_str)
+                event.id = event_id
+                async with self._uow:
+                    await self._uow.session.update_unread_message_count(
+                        session_id,
+                        0,
+                    )
+                yield event
+                if isinstance(event, (DoneEvent, WaitEvent)):
+                    break
+                if isinstance(event, ErrorEvent) and event.task_id is None:
+                    break
+        finally:
+            try:
+                asyncio.create_task(self._safe_update_unread_count(session_id))
+            except RuntimeError:
+                logger.warning(
+                    "会话[%s]无法创建后台任务更新未读消息计数",
+                    session_id,
+                )
+
     async def chat(
             self,
             session_id: str,
@@ -133,117 +316,35 @@ class AgentService:
             attachments: Optional[List[str]] = None,
             latest_event_id: Optional[str] = None,
             timestamp: Optional[datetime] = None,
+            mode: AgentMode = AgentMode.REACT,
+            budget_profile: str = "default",
     ) -> AsyncGenerator[BaseEvent, None]:
-        """根据传递的信息调用Agent服务发起对话请求"""
+        """兼容旧调用方的聊天流入口。"""
         try:
-            # 1.检查会话是否存在
-            async with self._uow:
-                session = await self._uow.session.get_by_id(session_id)
-            if not session:
-                logger.error(f"尝试与不存在的任务会话[{session_id}]对话")
-                raise RuntimeError("任务会话不存在, 请核实后重试")
-
-            # 2.获取对应会话任务
-            task = await self._get_task(session)
-
-            # 3.判断是否传递了message
-            if message:
-                # 4.判断会话的状态是什么,如果不是运行中则表示已完成或者空闲中
-                if session.status != SessionStatus.RUNNING or task is None:
-                    # 5.不在运行中需要创建一个新的task并启动
-                    task = await self._create_task(session)
-                    if not task:
-                        logger.error(f"会话[{session_id}]创建任务失败")
-                        raise RuntimeError(f"会话[{session_id}]创建任务失败")
-
-                # 6.传递了消息则更新会话中的最后一条消息
-                async with self._uow:
-                    await self._uow.session.update_latest_message(
-                        session_id=session_id,
-                        message=message,
-                        timestamp=timestamp or datetime.now(),
-                    )
-
-                # bugfix:从文件数据库中查询数据并更新attachments实际内容, 并返回人类消息事件
-                async with self._uow:
-                    db_attachments = [await self._uow.file.get_by_id(id) for id in attachments]
-
-                # 7.创建一个人类消息事件
-                message_event = MessageEvent(
-                    role="user",
-                    message=message,
-                    attachments=[attachment for attachment in db_attachments if attachment is not None],
-                    # attachments=[File(id=attachment) for attachment in attachments] if attachments else [],
-                )
-
-                # 8.将事件添加到任务的输入流中，好让Agent获取到数据
-                # 用户的意图以事件的形式进入 redis 队列，等待后台任务来取，返回 redis 分配的事件 id
-                event_id = await task.input_stream.put(message_event.model_dump_json())
-                # 把事件 id 回填给事件
-                message_event.id = event_id
-                # 把用户消息返回给前端（前端就能渲染会话气泡）
-                yield message_event
-                async with self._uow:
-                    await self._uow.session.add_event(session_id, message_event)
-
-                # 9.执行任务
-                # 把执行丢进独立的后台运行的 asyncio 任务里，然后立即返回，不会阻塞
-                await task.invoke()
-                logger.info(f"往会话[{session_id}]输入消息队列写入消息: {message[:50]}...")
-
-            # 10.记录日志展示会话已启动
-            logger.info(f"会话[{session_id}]已启动")
-            logger.info(f"会话[{session_id}]任务实例: {task}")
-
-            # 11.从任务的输出流中读取数据
-            while task and not task.done:
-                # 12.从输出消息队列中获取数据。从上次读到的位置继续往后读，支持断线重连、断点续传
-                event_id, event_str = await task.output_stream.get(start_id=latest_event_id, block_ms=0)
-                latest_event_id = event_id
-                if event_str is None:
-                    logger.debug(f"在会话[{session_id}]输出队列中未发现事件内容")
-                    continue
-
-                # 13.使用Pydantic提供的类型适配器将event_str转换为指定类实例
-                event = TypeAdapter(Event).validate_json(event_str)
-                event.id = event_id
-                logger.debug(f"从会话[{session_id}]中获取事件: {type(event).__name__}")
-
-                # 14.将未读消息数重置为0
-                async with self._uow:
-                    await self._uow.session.update_unread_message_count(session_id, 0)
-
-                # 15.将事件返回并判断事件类型是否为结束类型
-                # yield 将事件交给上层（/{session_id}/chat），上层再转成 SSE 推给前端。
+            prepared = await self.prepare_chat(
+                session_id=session_id,
+                message=message,
+                attachments=attachments,
+                latest_event_id=latest_event_id,
+                timestamp=timestamp,
+                mode=mode,
+                budget_profile=budget_profile,
+            )
+            async for event in self.stream_prepared_chat(prepared):
                 yield event
-                if isinstance(event, (DoneEvent, ErrorEvent, WaitEvent)):
-                    break
-
-            # 16.循环外面表示这次任务AI端的已结束
-            logger.info(f"会话[{session_id}]本轮运行结束")
-        except Exception as e:
-            # 17.记录日志并返回错误事件
-            logger.error(f"任务会话[{session_id}]对话出错: {str(e)}")
-            event = ErrorEvent(error=str(e))
+        except Exception as exc:
+            logger.error("任务会话[%s]对话出错: %s", session_id, exc)
+            event = ErrorEvent(session_id=session_id, error=str(exc))
             try:
                 async with self._uow:
                     await self._uow.session.add_event(session_id, event)
             except (asyncio.CancelledError, Exception) as add_err:
-                logger.warning(f"会话[{session_id}]添加错误事件失败(可能是客户端断开连接): {add_err}")
+                logger.warning(
+                    "会话[%s]添加错误事件失败: %s",
+                    session_id,
+                    add_err,
+                )
             yield event
-        finally:
-            # 18.会话完整传递给前端后，表示至少用户肯定收到了这些消息，所以不应该有未读消息数
-            # 注意：当SSE客户端断开连接时，sse_starlette使用anyio cancel scope取消当前Task中
-            # 所有的await操作（asyncio.shield也无法对抗anyio的cancel scope）。
-            # 如果在finally块中直接执行数据库操作，该操作会被立即取消，并且SQLAlchemy在尝试
-            # 终止被中断的连接时也会被取消，从而产生ERROR日志并可能污染连接池。
-            # 解决方案：将数据库更新操作放到独立的asyncio Task中执行，新Task不受当前
-            # cancel scope的影响，可以正常完成数据库操作。
-            try:
-                asyncio.create_task(self._safe_update_unread_count(session_id))
-            except RuntimeError:
-                # 事件循环已关闭（如应用正在关闭），无法创建后台任务
-                logger.warning(f"会话[{session_id}]无法创建后台任务更新未读消息计数")
 
     async def stop_session(self, session_id: str) -> None:
         """根据传递的会话id停止指定会话"""

@@ -28,9 +28,15 @@ from app.domain.services.flows.research_team import (
 class FakeRunRepository:
     def __init__(self) -> None:
         self.runs = {}
+        self.add_count = 0
 
     async def add(self, run: AgentRun) -> None:
+        self.add_count += 1
         self.runs[run.id] = run.model_copy(deep=True)
+
+    async def get(self, run_id: str):
+        run = self.runs.get(run_id)
+        return run.model_copy(deep=True) if run is not None else None
 
     async def update(self, run: AgentRun) -> None:
         self.runs[run.id] = run.model_copy(deep=True)
@@ -181,4 +187,44 @@ async def test_reviewer_can_add_only_one_repair_wave() -> None:
     assert reviewer.call_count == 2
     assert orchestrator.call_count == 2
     assert sum(isinstance(event, ResearchPlanEvent) for event in events) == 2
+    assert sum(isinstance(event, DoneEvent) for event in events) == 1
+
+
+async def test_flow_reuses_pending_run_created_by_service() -> None:
+    reviewer = FakeReviewer([ReviewResult(approved=True)])
+    components = ResearchTeamComponents(
+        planner=FakePlanner(initial_plan()),
+        orchestrator=FakeOrchestrator(),
+        reviewer=reviewer,
+        synthesizer=FakeSynthesizer(),
+        citation_verifier=FakeVerifier(),
+    )
+    runs = FakeRunRepository()
+    runs.runs["run-1"] = AgentRun(
+        id="run-1",
+        session_id="session-1",
+        mode=AgentMode.RESEARCH_TEAM,
+        status=RunStatus.PENDING,
+        goal="research",
+    )
+    flow = ResearchTeamFlow(
+        uow_factory=lambda: FakeUow(runs, FakeResearchRepository()),
+        session_id="session-1",
+        component_factory=lambda run, sequencer: components,
+        attachment_ingestor=FakeIngestor(),
+        renderer=FakeRenderer(),
+    )
+    request = FlowRequest(
+        command=StartRunCommand(
+            run_id="run-1",
+            session_id="session-1",
+            mode=AgentMode.RESEARCH_TEAM,
+            message="research",
+        ),
+        message=Message(message="research"),
+    )
+
+    events = [event async for event in flow.invoke(request)]
+
+    assert runs.add_count == 0
     assert sum(isinstance(event, DoneEvent) for event in events) == 1

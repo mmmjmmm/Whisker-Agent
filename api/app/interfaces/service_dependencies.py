@@ -23,8 +23,13 @@ from app.infrastructure.external.json_parser.repair_json_parser import RepairJSO
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 from app.infrastructure.external.search.bing_search import BingSearchEngine
+from app.infrastructure.external.source_storage.oss_source_content_storage import (
+    OSSSourceContentStorage,
+)
 from app.infrastructure.external.task.redis_stream_task import RedisStreamTask
+from app.infrastructure.external.web.httpx_web_reader import HttpxWebReader
 from app.infrastructure.repositories.file_app_config_repository import FileAppConfigRepository
+from app.domain.services.flows.research_team_factory import ResearchTeamFlowFactory
 from app.infrastructure.storage.oss import OSS, get_oss
 from app.infrastructure.storage.postgres import get_db_session, get_uow
 from app.infrastructure.storage.redis import RedisClient, get_redis
@@ -68,6 +73,20 @@ def get_file_service(
         oss=oss,
         uow_factory=get_uow,
     )
+    json_parser = RepairJSONParser()
+    search_engine = BingSearchEngine()
+    research_flow_factory = None
+    if settings.research_team_enabled:
+        team_factory = ResearchTeamFlowFactory(
+            uow_factory=get_uow,
+            llm=llm,
+            json_parser=json_parser,
+            search_engine=search_engine,
+            web_reader=HttpxWebReader(),
+            source_storage=OSSSourceContentStorage(oss.bucket),
+            file_storage=file_storage,
+        )
+        research_flow_factory = team_factory.create
 
     # 2.构建服务并返回
     return FileService(
@@ -103,7 +122,9 @@ def get_agent_service(
         a2a_config=app_config.a2a_config,
         sandbox_cls=DockerSandbox,
         task_cls=RedisStreamTask,
-        json_parser=RepairJSONParser(),
-        search_engine=BingSearchEngine(),
+        json_parser=json_parser,
+        search_engine=search_engine,
         file_storage=file_storage,
+        research_team_enabled=settings.research_team_enabled,
+        research_flow_factory=research_flow_factory,
     )

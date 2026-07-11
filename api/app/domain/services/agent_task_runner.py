@@ -63,9 +63,9 @@ class AgentTaskRunner(TaskRunner):
             session_id: str,  # 会话id
             file_storage: FileStorage,  # 文件存储桶
             json_parser: JSONParser,  # json解析器
-            browser: Browser,  # 浏览器
+            browser: Browser | None,  # 浏览器
             search_engine: SearchEngine,  # 搜索引擎
-            sandbox: Sandbox,  # 沙箱
+            sandbox: Sandbox | None,  # 沙箱
             flow_router: FlowRouter | None = None,
             research_flow_factory: Callable[[], BaseFlow] | None = None,
             mcp_tool: MCPTool | None = None,

@@ -87,20 +87,11 @@ class ResearchTeamFlow(BaseFlow):
             sequencer: EventSequencer,
     ) -> None:
         command = request.command
-        run = AgentRun(
-            id=command.run_id,
-            session_id=command.session_id,
-            mode=command.mode,
-            goal=command.message,
-            budget_snapshot=command.budget,
-            status=RunStatus.PLANNING,
-            started_at=datetime.now(timezone.utc),
-        )
+        run = await self._prepare_run(command)
         heartbeat_stop = asyncio.Event()
         heartbeat_task: asyncio.Task | None = None
         done_published = False
         try:
-            await self._add_run(run)
             await sequencer.publish(RunEvent(
                 session_id=run.session_id,
                 status=run.status,
@@ -373,6 +364,36 @@ class ResearchTeamFlow(BaseFlow):
     async def _add_run(self, run: AgentRun) -> None:
         async with self._uow_factory() as uow:
             await uow.agent_run.add(run)
+
+    async def _prepare_run(self, command) -> AgentRun:
+        async with self._uow_factory() as uow:
+            run = await uow.agent_run.get(command.run_id)
+
+        now = datetime.now(timezone.utc)
+        if run is None:
+            run = AgentRun(
+                id=command.run_id,
+                session_id=command.session_id,
+                mode=command.mode,
+                goal=command.message,
+                budget_snapshot=command.budget,
+                status=RunStatus.PLANNING,
+                started_at=now,
+            )
+            await self._add_run(run)
+            return run
+
+        if run.session_id != command.session_id or run.mode != command.mode:
+            raise ValueError("run command does not match persisted run")
+        if run.status != RunStatus.PENDING:
+            raise ValueError(f"run is not pending: {run.status.value}")
+        run.goal = command.message
+        run.budget_snapshot = command.budget
+        run.status = RunStatus.PLANNING
+        run.started_at = run.started_at or now
+        run.heartbeat_at = now
+        await self._save_run(run)
+        return run
 
     async def _save_run(self, run: AgentRun) -> None:
         run.updated_at = datetime.now(timezone.utc)

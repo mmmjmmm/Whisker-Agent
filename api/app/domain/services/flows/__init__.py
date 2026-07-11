@@ -8,5 +8,11 @@
 from .flow_router import FlowRouter
 from .planner_react import PlannerReActFlow
 from .research_team import ResearchTeamFlow
+from .research_team_factory import ResearchTeamFlowFactory
 
-__all__ = ["FlowRouter", "PlannerReActFlow", "ResearchTeamFlow"]
+__all__ = [
+    "FlowRouter",
+    "PlannerReActFlow",
+    "ResearchTeamFlow",
+    "ResearchTeamFlowFactory",
+]
