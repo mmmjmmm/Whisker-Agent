@@ -37,6 +37,10 @@ from app.domain.services.research.memory_store import (
     RunMemoryStore,
 )
 from app.domain.services.research.tool_policy import ToolPolicy
+from app.domain.services.research.telemetry import (
+    NoopResearchTelemetry,
+    ResearchTelemetry,
+)
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.web_read import WebReadTool
 
@@ -49,12 +53,14 @@ class DefaultResearchWorkerFactory(ResearchWorkerFactory):
             tool_policy: ToolPolicy,
             budget: RunBudgetManager,
             json_parser: JSONParser,
+            telemetry: ResearchTelemetry,
     ) -> None:
         self._run = run
         self._llm = llm
         self._tool_policy = tool_policy
         self._budget = budget
         self._json_parser = json_parser
+        self._telemetry = telemetry
 
     def create(
             self,
@@ -79,6 +85,7 @@ class DefaultResearchWorkerFactory(ResearchWorkerFactory):
                 agent_profile=attempt.agent_profile,
             ),
             emit=emit,
+            telemetry=self._telemetry,
         ))
 
 
@@ -92,6 +99,7 @@ class ResearchTeamFlowFactory:
             web_reader: WebReader,
             source_storage: SourceContentStorage,
             file_storage: FileStorage,
+            telemetry: ResearchTelemetry | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._llm = llm
@@ -100,6 +108,7 @@ class ResearchTeamFlowFactory:
         self._web_reader = web_reader
         self._source_storage = source_storage
         self._file_storage = file_storage
+        self._telemetry = telemetry or NoopResearchTelemetry()
 
     def create(self, session_id: str) -> ResearchTeamFlow:
         return ResearchTeamFlow(
@@ -111,6 +120,7 @@ class ResearchTeamFlowFactory:
                 uow_factory=self._uow_factory,
             ),
             renderer=FinalReportRenderer(),
+            telemetry=self._telemetry,
         )
 
     def build_components(
@@ -139,12 +149,14 @@ class ResearchTeamFlowFactory:
                     agent_profile=agent_profile,
                 ),
                 emit=sequencer.publish,
+                telemetry=self._telemetry,
             )
 
         normalizer = EvidenceNormalizer(
             reader=self._web_reader,
             source_storage=self._source_storage,
             uow_factory=self._uow_factory,
+            telemetry=self._telemetry,
         )
         worker_factory = DefaultResearchWorkerFactory(
             run=run,
@@ -152,6 +164,7 @@ class ResearchTeamFlowFactory:
             tool_policy=tool_policy,
             budget=budget,
             json_parser=self._json_parser,
+            telemetry=self._telemetry,
         )
         return ResearchTeamComponents(
             planner=ResearchPlannerAgent(runtime("planner")),
@@ -160,6 +173,7 @@ class ResearchTeamFlowFactory:
                 worker_factory=worker_factory,
                 normalizer=normalizer,
                 event_sequencer=sequencer,
+                telemetry=self._telemetry,
             ),
             reviewer=CoverageReviewerAgent(runtime("reviewer")),
             synthesizer=ResearchSynthesizerAgent(runtime("synthesizer")),

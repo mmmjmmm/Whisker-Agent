@@ -105,6 +105,16 @@ def test_metrics_use_fixed_names_and_content_free_attributes() -> None:
         unsupported_claim_rate=0.02,
         independent_domains=5,
     )
+    telemetry.record_worker_active(delta=1)
+    telemetry.record_worker_active(delta=-1)
+    telemetry.record_repair_wave()
+    telemetry.record_source_summary(
+        source_count=8,
+        independent_domains=5,
+    )
+    telemetry.record_retry(reason="ToolTransientError")
+    telemetry.record_timeout(scope="task")
+    telemetry.record_budget_exhausted(resource="max_llm_calls")
 
     metrics = metric_reader.get_metrics_data()
     names = {
@@ -123,4 +133,10 @@ def test_metrics_use_fixed_names_and_content_free_attributes() -> None:
         "research.citation.coverage",
         "research.claim.unsupported_rate",
         "research.source.independent_domains",
+        "research.worker.active",
+        "research.repair.wave",
+        "research.source.count",
+        "research.retry",
+        "research.timeout",
+        "research.budget.exhausted",
     }

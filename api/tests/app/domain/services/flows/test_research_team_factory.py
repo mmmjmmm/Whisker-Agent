@@ -21,6 +21,7 @@ from app.domain.services.research.memory_store import EphemeralMemoryStore
 
 class FakeLLM:
     max_tokens = 100
+    model_name = "fake"
 
     def __init__(self) -> None:
         self.calls = []

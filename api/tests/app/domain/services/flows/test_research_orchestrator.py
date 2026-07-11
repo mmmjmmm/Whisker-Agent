@@ -22,6 +22,7 @@ from app.domain.services.research.errors import (
     ResearchExecutionError,
 )
 from app.domain.services.research.event_sequencer import EventSequencer
+from tests.fakes.telemetry import RecordingResearchTelemetry
 
 
 class Probe:
@@ -213,11 +214,13 @@ async def test_retryable_failure_uses_new_attempt_memory() -> None:
     probe = Probe()
     factory = FakeWorkerFactory(probe, {"task": [transient, "success"]})
     repository = FakeRunRepository()
+    telemetry = RecordingResearchTelemetry()
     orchestrator = ResearchOrchestrator(
         uow_factory=lambda: FakeUow(repository),
         worker_factory=factory,
         normalizer=FakeNormalizer(),
         event_sequencer=EventSequencer("run-1"),
+        telemetry=telemetry,
     )
     plan = ResearchPlan(title="retry", goal="research", tasks=[task("task")])
 
@@ -226,18 +229,21 @@ async def test_retryable_failure_uses_new_attempt_memory() -> None:
     assert result.status_by_key["task"] == TaskStatus.COMPLETED
     assert len(factory.attempts) == 2
     assert factory.memory_stores[0] is not factory.memory_stores[1]
+    assert telemetry.retries == ["ToolTransientError"]
 
 
 async def test_task_timeout_retries_once_then_converges() -> None:
     probe = Probe()
     factory = FakeWorkerFactory(probe)
     repository = FakeRunRepository()
+    telemetry = RecordingResearchTelemetry()
     orchestrator = ResearchOrchestrator(
         uow_factory=lambda: FakeUow(repository),
         worker_factory=factory,
         normalizer=FakeNormalizer(),
         event_sequencer=EventSequencer("run-1"),
         task_timeout_seconds=0.001,
+        telemetry=telemetry,
     )
     plan = ResearchPlan(title="timeout", goal="research", tasks=[task("task")])
 
@@ -246,6 +252,9 @@ async def test_task_timeout_retries_once_then_converges() -> None:
     assert result.status_by_key["task"] == TaskStatus.TIMED_OUT
     assert result.run_status == RunStatus.FAILED
     assert len(factory.attempts) == 2
+    assert telemetry.timeouts == ["task", "task"]
+    assert telemetry.task_results[0]["status"] == "timed_out"
+    assert telemetry.worker_deltas == [1, -1]
 
 
 async def test_budget_exceeded_is_not_retried() -> None:
@@ -255,11 +264,13 @@ async def test_budget_exceeded_is_not_retried() -> None:
         {"task": [BudgetExceeded("max_llm_calls")]},
     )
     repository = FakeRunRepository()
+    telemetry = RecordingResearchTelemetry()
     orchestrator = ResearchOrchestrator(
         uow_factory=lambda: FakeUow(repository),
         worker_factory=factory,
         normalizer=FakeNormalizer(),
         event_sequencer=EventSequencer("run-1"),
+        telemetry=telemetry,
     )
     plan = ResearchPlan(title="budget", goal="research", tasks=[task("task")])
 
@@ -267,6 +278,7 @@ async def test_budget_exceeded_is_not_retried() -> None:
 
     assert result.status_by_key["task"] == TaskStatus.FAILED
     assert len(factory.attempts) == 1
+    assert telemetry.budget_exhausted == ["max_llm_calls"]
 
 
 async def test_cancel_propagates_to_attempt_and_pending_tasks() -> None:

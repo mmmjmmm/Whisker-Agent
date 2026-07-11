@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Protocol
 
 from app.domain.external.llm import LLMErrorKind, LLMInvocationError
@@ -30,7 +31,12 @@ from app.domain.services.research.errors import (
 from app.domain.services.research.event_sequencer import EventSequencer
 from app.domain.services.research.evidence_normalizer import EvidenceNormalizer
 from app.domain.services.research.memory_store import EphemeralMemoryStore
+from app.domain.services.research.budget import BudgetExceeded
 from app.domain.services.research.task_graph import TaskGraph
+from app.domain.services.research.telemetry import (
+    NoopResearchTelemetry,
+    ResearchTelemetry,
+)
 
 
 class ResearchWorkerFactory(Protocol):
@@ -51,6 +57,24 @@ class TaskOutcome:
     error: ResearchExecutionError | None = None
 
 
+class _ActiveWorkerSlot:
+    def __init__(
+            self,
+            semaphore: asyncio.Semaphore,
+            telemetry: ResearchTelemetry,
+    ) -> None:
+        self._semaphore = semaphore
+        self._telemetry = telemetry
+
+    async def __aenter__(self) -> None:
+        await self._semaphore.acquire()
+        self._telemetry.record_worker_active(delta=1)
+
+    async def __aexit__(self, *_args) -> None:
+        self._telemetry.record_worker_active(delta=-1)
+        self._semaphore.release()
+
+
 class ResearchOrchestrator:
     def __init__(
             self,
@@ -59,6 +83,7 @@ class ResearchOrchestrator:
             normalizer: EvidenceNormalizer,
             event_sequencer: EventSequencer,
             task_timeout_seconds: float | None = None,
+            telemetry: ResearchTelemetry | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._worker_factory = worker_factory
@@ -67,6 +92,7 @@ class ResearchOrchestrator:
         self._task_timeout_seconds = task_timeout_seconds
         self._cancel_event = asyncio.Event()
         self._normalization_lock = asyncio.Lock()
+        self._telemetry = telemetry or NoopResearchTelemetry()
 
     def cancel(self) -> None:
         self._cancel_event.set()
@@ -212,10 +238,45 @@ class ResearchOrchestrator:
             semaphore: asyncio.Semaphore,
             attachment_evidence_ids: list[str],
     ) -> TaskOutcome:
+        started = perf_counter()
+        status = TaskStatus.INTERRUPTED.value
+        try:
+            outcome = await self._execute_task_attempts(
+                task=task,
+                run=run,
+                tasks_by_key=tasks_by_key,
+                findings_by_key=findings_by_key,
+                semaphore=semaphore,
+                attachment_evidence_ids=attachment_evidence_ids,
+            )
+            status = outcome.status.value
+            return outcome
+        except asyncio.CancelledError:
+            status = TaskStatus.CANCELLED.value
+            raise
+        finally:
+            self._telemetry.record_task_finished(
+                status=status,
+                elapsed_ms=max(
+                    0,
+                    round((perf_counter() - started) * 1000),
+                ),
+            )
+
+    async def _execute_task_attempts(
+            self,
+            *,
+            task: AgentTask,
+            run: AgentRun,
+            tasks_by_key: dict[str, AgentTask],
+            findings_by_key: dict[str, NormalizedFinding],
+            semaphore: asyncio.Semaphore,
+            attachment_evidence_ids: list[str],
+    ) -> TaskOutcome:
         max_attempts = run.budget_snapshot.max_attempts_per_task
         timeout = self._task_timeout_seconds or run.budget_snapshot.task_timeout_seconds
 
-        async with semaphore:
+        async with _ActiveWorkerSlot(semaphore, self._telemetry):
             for attempt_number in range(1, max_attempts + 1):
                 agent_id = str(uuid.uuid4())
                 attempt = TaskAttempt(
@@ -260,6 +321,17 @@ class ResearchOrchestrator:
                     raise
                 except Exception as exc:
                     error = self._classify_error(exc)
+                    if error.code == ResearchErrorCode.TASK_TIMEOUT:
+                        self._telemetry.record_timeout(scope="task")
+                    if error.code == ResearchErrorCode.BUDGET_EXCEEDED:
+                        resource = (
+                            exc.limit
+                            if isinstance(exc, BudgetExceeded)
+                            else "unknown"
+                        )
+                        self._telemetry.record_budget_exhausted(
+                            resource=resource
+                        )
                     attempt.status = (
                         AttemptStatus.TIMED_OUT
                         if error.code == ResearchErrorCode.TASK_TIMEOUT
@@ -270,6 +342,7 @@ class ResearchOrchestrator:
                     attempt.finished_at = datetime.now(timezone.utc)
                     await self._update_attempt(attempt)
                     if error.retryable and attempt_number < max_attempts:
+                        self._telemetry.record_retry(reason=error.code.value)
                         continue
                     task_status = (
                         TaskStatus.TIMED_OUT

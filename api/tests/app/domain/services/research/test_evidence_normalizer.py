@@ -9,6 +9,7 @@ from app.domain.services.research.evidence_normalizer import (
     EvidenceNormalizer,
     InvalidFindingBundle,
 )
+from tests.fakes.telemetry import RecordingResearchTelemetry
 
 
 class FakeReader:
@@ -126,10 +127,12 @@ async def test_normalizer_rejects_unknown_evidence_reference() -> None:
 async def test_normalizer_persists_local_reference_mapping() -> None:
     repository = FakeResearchRepository()
     storage = FakeSourceStorage()
+    telemetry = RecordingResearchTelemetry()
     normalizer = EvidenceNormalizer(
         reader=FakeReader(),
         source_storage=storage,
         uow_factory=lambda: FakeUow(repository),
+        telemetry=telemetry,
     )
 
     result = await normalizer.normalize(
@@ -143,6 +146,13 @@ async def test_normalizer_persists_local_reference_mapping() -> None:
     assert result.claims[0].evidence_ids == [result.evidence[0].id]
     assert repository.claims[0].evidence_ids == [repository.evidence[0].id]
     assert storage.objects
+    assert telemetry.tool_spans == [{
+        "run_id": "run-1",
+        "task_id": "task-1",
+        "attempt_id": None,
+        "tool_name": "web_read",
+    }]
+    assert telemetry.tool_calls[0]["status"] == "completed"
 
 
 async def test_normalizer_rejects_excerpt_not_present_in_source() -> None:
@@ -161,4 +171,3 @@ async def test_normalizer_rejects_excerpt_not_present_in_source() -> None:
         assert "not found" in str(exc)
     else:
         raise AssertionError("invented excerpt was accepted")
-

@@ -46,8 +46,8 @@ class ResearchTelemetry(Protocol):
         self,
         *,
         run_id: str,
-        task_id: str,
-        attempt_id: str,
+        task_id: str | None,
+        attempt_id: str | None,
         tool_name: str,
     ) -> ContextManager[None]: ...
 
@@ -78,6 +78,23 @@ class ResearchTelemetry(Protocol):
         unsupported_claim_rate: float,
         independent_domains: int,
     ) -> None: ...
+
+    def record_worker_active(self, *, delta: int) -> None: ...
+
+    def record_repair_wave(self) -> None: ...
+
+    def record_source_summary(
+        self,
+        *,
+        source_count: int,
+        independent_domains: int,
+    ) -> None: ...
+
+    def record_retry(self, *, reason: str) -> None: ...
+
+    def record_timeout(self, *, scope: str) -> None: ...
+
+    def record_budget_exhausted(self, *, resource: str) -> None: ...
 
 
 class NoopResearchTelemetry:
@@ -118,8 +135,8 @@ class NoopResearchTelemetry:
         self,
         *,
         run_id: str,
-        task_id: str,
-        attempt_id: str,
+        task_id: str | None,
+        attempt_id: str | None,
         tool_name: str,
     ) -> Iterator[None]:
         TelemetryAttributes(
@@ -161,4 +178,27 @@ class NoopResearchTelemetry:
         unsupported_claim_rate: float,
         independent_domains: int,
     ) -> None:
+        return None
+
+    def record_worker_active(self, *, delta: int) -> None:
+        return None
+
+    def record_repair_wave(self) -> None:
+        return None
+
+    def record_source_summary(
+        self,
+        *,
+        source_count: int,
+        independent_domains: int,
+    ) -> None:
+        return None
+
+    def record_retry(self, *, reason: str) -> None:
+        return None
+
+    def record_timeout(self, *, scope: str) -> None:
+        return None
+
+    def record_budget_exhausted(self, *, resource: str) -> None:
         return None

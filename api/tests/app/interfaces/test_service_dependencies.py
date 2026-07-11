@@ -52,3 +52,15 @@ def test_file_service_does_not_build_research_runtime(monkeypatch) -> None:
     service = dependencies.get_file_service(oss=SimpleNamespace(bucket="bucket"))
 
     assert set(service) == {"uow_factory", "file_storage"}
+
+
+def test_agent_service_builds_research_factory_with_feature_enabled(
+    monkeypatch,
+) -> None:
+    _patch_common(monkeypatch, research_team_enabled=True)
+
+    service = dependencies.get_agent_service(oss=SimpleNamespace(bucket="bucket"))
+
+    assert callable(service["research_flow_factory"])
+    factory = service["research_flow_factory"].__self__
+    assert factory._telemetry is dependencies.get_research_telemetry()

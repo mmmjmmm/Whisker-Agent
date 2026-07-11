@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Awaitable, Callable
+from time import perf_counter
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
@@ -20,6 +21,10 @@ from app.domain.services.research.errors import (
     ResearchExecutionError,
 )
 from app.domain.services.research.memory_store import AgentMemoryStore
+from app.domain.services.research.telemetry import (
+    NoopResearchTelemetry,
+    ResearchTelemetry,
+)
 from app.domain.services.research.tool_policy import ToolPolicy
 
 
@@ -49,6 +54,7 @@ class TeamAgentRuntime:
             context: AgentRuntimeContext,
             emit: EventCallback | None = None,
             max_iterations: int = 20,
+            telemetry: ResearchTelemetry | None = None,
     ) -> None:
         self._llm = llm
         self._tool_policy = tool_policy
@@ -58,8 +64,32 @@ class TeamAgentRuntime:
         self._context = context
         self._emit_callback = emit
         self._max_iterations = max_iterations
+        self._telemetry = telemetry or NoopResearchTelemetry()
 
     async def run(
+            self,
+            *,
+            prompt: str,
+            output_type: type[TOutput],
+            profile: CapabilityProfile,
+            memory_key: str,
+    ) -> TOutput:
+        with self._telemetry.agent_span(
+            run_id=self._context.run_id,
+            task_id=self._context.task_id,
+            attempt_id=self._context.attempt_id,
+            agent_id=self._context.agent_id,
+            agent_profile=self._context.agent_profile,
+            model=self._llm.model_name,
+        ):
+            return await self._run(
+                prompt=prompt,
+                output_type=output_type,
+                profile=profile,
+                memory_key=memory_key,
+            )
+
+    async def _run(
             self,
             *,
             prompt: str,
@@ -99,7 +129,31 @@ class TeamAgentRuntime:
                         function_args=arguments,
                         status=ToolEventStatus.CALLING,
                     ))
-                    tool_result = await tool.invoke(function_name, **arguments)
+                    tool_started = perf_counter()
+                    tool_status = "failed"
+                    try:
+                        with self._telemetry.tool_span(
+                            run_id=self._context.run_id,
+                            task_id=self._context.task_id,
+                            attempt_id=self._context.attempt_id,
+                            tool_name=function_name,
+                        ):
+                            tool_result = await tool.invoke(
+                                function_name,
+                                **arguments,
+                            )
+                        tool_status = (
+                            "completed" if tool_result.success else "failed"
+                        )
+                    finally:
+                        self._telemetry.record_tool_call(
+                            tool_name=function_name,
+                            status=tool_status,
+                            elapsed_ms=max(
+                                0,
+                                round((perf_counter() - tool_started) * 1000),
+                            ),
+                        )
                     await self._emit(self._tool_event(
                         tool_call_id=tool_call_id,
                         tool_name=tool.name,
@@ -170,6 +224,11 @@ class TeamAgentRuntime:
             await self._budget.settle_llm(reservation, LLMUsage())
             raise
         usage = await self._budget.settle_llm(reservation, result.usage)
+        self._telemetry.record_llm_usage(
+            agent_profile=self._context.agent_profile,
+            input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+        )
         await self._emit(ResearchUsageEvent(
             **self._correlation_fields(),
             budget=self._budget.budget.model_dump(mode="json"),

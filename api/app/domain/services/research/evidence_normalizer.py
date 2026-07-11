@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Callable
+from time import perf_counter
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.domain.external.source_content_storage import SourceContentStorage
@@ -12,6 +13,10 @@ from app.domain.models.research import (
     ResearchSource,
 )
 from app.domain.repositories.uow import IUnitOfWork
+from app.domain.services.research.telemetry import (
+    NoopResearchTelemetry,
+    ResearchTelemetry,
+)
 
 
 TRACKING_QUERY_PREFIXES = ("utm_",)
@@ -52,10 +57,12 @@ class EvidenceNormalizer:
             reader: WebReader,
             source_storage: SourceContentStorage,
             uow_factory: Callable[[], IUnitOfWork],
+            telemetry: ResearchTelemetry | None = None,
     ) -> None:
         self._reader = reader
         self._source_storage = source_storage
         self._uow_factory = uow_factory
+        self._telemetry = telemetry or NoopResearchTelemetry()
 
     async def normalize(
             self,
@@ -79,7 +86,26 @@ class EvidenceNormalizer:
         new_sources: list[ResearchSource] = []
 
         for candidate in bundle.source_candidates:
-            result = await self._reader.read(candidate.original_url)
+            read_started = perf_counter()
+            read_status = "failed"
+            try:
+                with self._telemetry.tool_span(
+                    run_id=run_id,
+                    task_id=bundle.task_id,
+                    attempt_id=None,
+                    tool_name="web_read",
+                ):
+                    result = await self._reader.read(candidate.original_url)
+                read_status = "completed"
+            finally:
+                self._telemetry.record_tool_call(
+                    tool_name="web_read",
+                    status=read_status,
+                    elapsed_ms=max(
+                        0,
+                        round((perf_counter() - read_started) * 1000),
+                    ),
+                )
             content_hash = hashlib.sha256(result.raw_content).hexdigest()
             source = sources_by_hash.get(content_hash)
             if source is None:

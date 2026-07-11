@@ -25,6 +25,7 @@ from app.domain.services.flows.research_team import (
     ResearchTeamComponents,
     ResearchTeamFlow,
 )
+from tests.fakes.telemetry import RecordingResearchTelemetry
 
 
 class FakeRunRepository:
@@ -169,6 +170,7 @@ async def test_reviewer_can_add_only_one_repair_wave() -> None:
     )
     runs = FakeRunRepository()
     research = FakeResearchRepository()
+    telemetry = RecordingResearchTelemetry()
     flow = ResearchTeamFlow(
         uow_factory=lambda: FakeUow(runs, research),
         session_id="session-1",
@@ -176,6 +178,7 @@ async def test_reviewer_can_add_only_one_repair_wave() -> None:
         attachment_ingestor=FakeIngestor(),
         renderer=FakeRenderer(),
         heartbeat_interval_seconds=0.01,
+        telemetry=telemetry,
     )
     request = FlowRequest(
         command=StartRunCommand(
@@ -193,6 +196,13 @@ async def test_reviewer_can_add_only_one_repair_wave() -> None:
     assert orchestrator.call_count == 2
     assert sum(isinstance(event, ResearchPlanEvent) for event in events) == 2
     assert sum(isinstance(event, DoneEvent) for event in events) == 1
+    assert telemetry.workflow_spans == [{
+        "run_id": "run-1",
+        "session_id": "session-1",
+        "mode": "research_team",
+    }]
+    assert telemetry.repair_waves == 1
+    assert telemetry.run_results[0]["status"] == "failed"
 
 
 async def test_flow_reuses_pending_run_created_by_service() -> None:

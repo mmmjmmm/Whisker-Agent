@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any
 
 from app.domain.models.agent_run import AgentRun, RunStatus
@@ -26,7 +27,12 @@ from app.domain.services.flows.base import (
     FlowResourceRequirements,
 )
 from app.domain.services.research.event_sequencer import EventSequencer
+from app.domain.services.research.budget import BudgetExceeded
 from app.domain.services.research.task_graph import InvalidTaskGraph, TaskGraph
+from app.domain.services.research.telemetry import (
+    NoopResearchTelemetry,
+    ResearchTelemetry,
+)
 
 
 @dataclass
@@ -52,6 +58,7 @@ class ResearchTeamFlow(BaseFlow):
             attachment_ingestor: Any,
             renderer: Any,
             heartbeat_interval_seconds: float = 30.0,
+            telemetry: ResearchTelemetry | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._session_id = session_id
@@ -59,6 +66,7 @@ class ResearchTeamFlow(BaseFlow):
         self._attachment_ingestor = attachment_ingestor
         self._renderer = renderer
         self._heartbeat_interval = heartbeat_interval_seconds
+        self._telemetry = telemetry or NoopResearchTelemetry()
         self._done = True
 
     async def invoke(self, request: FlowRequest):
@@ -88,6 +96,31 @@ class ResearchTeamFlow(BaseFlow):
             self,
             request: FlowRequest,
             sequencer: EventSequencer,
+    ) -> None:
+        command = request.command
+        state = {"status": RunStatus.FAILED}
+        started = perf_counter()
+        try:
+            with self._telemetry.workflow_span(
+                run_id=command.run_id,
+                session_id=command.session_id,
+                mode=command.mode.value,
+            ):
+                await self._run_pipeline_traced(request, sequencer, state)
+        finally:
+            self._telemetry.record_run_finished(
+                status=state["status"].value,
+                elapsed_ms=max(
+                    0,
+                    round((perf_counter() - started) * 1000),
+                ),
+            )
+
+    async def _run_pipeline_traced(
+            self,
+            request: FlowRequest,
+            sequencer: EventSequencer,
+            telemetry_state: dict[str, RunStatus],
     ) -> None:
         command = request.command
         run = AgentRun(
@@ -135,6 +168,7 @@ class ResearchTeamFlow(BaseFlow):
             await sequencer.publish(DoneEvent(session_id=run.session_id))
             done_published = True
         except TimeoutError:
+            self._telemetry.record_timeout(scope="run")
             run.status = RunStatus.FAILED
             run.error = {
                 "type": "RunTimeout",
@@ -153,6 +187,8 @@ class ResearchTeamFlow(BaseFlow):
                 await self._finish_run(run)
             raise
         except Exception as exc:
+            if isinstance(exc, BudgetExceeded):
+                self._telemetry.record_budget_exhausted(resource=exc.limit)
             run.status = RunStatus.FAILED
             run.error = {
                 "type": type(exc).__name__,
@@ -165,6 +201,7 @@ class ResearchTeamFlow(BaseFlow):
                 error=f"research team flow failed: {exc}",
             ))
         finally:
+            telemetry_state["status"] = run.status
             try:
                 if not done_published:
                     await sequencer.publish(RunEvent(
@@ -248,6 +285,7 @@ class ResearchTeamFlow(BaseFlow):
         orchestration_statuses = [first_result.run_status]
 
         if review.repair_tasks:
+            self._telemetry.record_repair_wave()
             combined_tasks = [*plan.tasks, *review.repair_tasks]
             TaskGraph.build(combined_tasks, run.budget_snapshot)
             repair_keys = {task.key for task in review.repair_tasks}
@@ -323,6 +361,7 @@ class ResearchTeamFlow(BaseFlow):
         ):
             if components.budget_manager is not None:
                 run.usage = await components.budget_manager.snapshot()
+            self._record_quality_metrics(claims, sources)
             run.status = RunStatus.FAILED
             await self._finish_run(run)
             return "研究未获得可验证证据，未生成事实性结论。"
@@ -382,6 +421,7 @@ class ResearchTeamFlow(BaseFlow):
             if degraded or not review.approved
             else RunStatus.COMPLETED
         )
+        self._record_quality_metrics(claims, sources)
         await self._finish_run(run)
         if not has_verified_claim:
             return "研究未获得可验证证据，未生成事实性结论。"
@@ -468,3 +508,30 @@ class ResearchTeamFlow(BaseFlow):
             claim = claims_by_id.get(check.claim_id)
             if claim is not None:
                 claim.support_status = check.status
+
+    def _record_quality_metrics(self, claims, sources) -> None:
+        important_claims = [claim for claim in claims if claim.importance >= 2]
+        total_weight = sum(claim.importance for claim in important_claims)
+        supported_weight = sum(
+            claim.importance
+            for claim in important_claims
+            if claim.support_status in {
+                ClaimSupportStatus.SUPPORTED,
+                ClaimSupportStatus.PARTIALLY_SUPPORTED,
+            }
+        )
+        unsupported_weight = total_weight - supported_weight
+        independent_domains = len({source.domain for source in sources})
+        self._telemetry.record_source_summary(
+            source_count=len(sources),
+            independent_domains=independent_domains,
+        )
+        self._telemetry.record_research_quality(
+            citation_coverage=(
+                supported_weight / total_weight if total_weight else 0.0
+            ),
+            unsupported_claim_rate=(
+                unsupported_weight / total_weight if total_weight else 0.0
+            ),
+            independent_domains=independent_domains,
+        )

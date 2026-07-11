@@ -16,6 +16,7 @@ from app.domain.services.research.memory_store import EphemeralMemoryStore
 from app.domain.services.research.tool_policy import PolicyViolation, ToolPolicy
 from app.domain.services.tools.base import BaseTool, tool
 from tests.fakes.llm import FakeLLM
+from tests.fakes.telemetry import RecordingResearchTelemetry
 
 
 class Output(BaseModel):
@@ -141,6 +142,7 @@ async def test_runtime_emits_correlated_tool_and_usage_events() -> None:
     async def emit(event) -> None:
         events.append(event)
 
+    telemetry = RecordingResearchTelemetry()
     runtime = TeamAgentRuntime(
         llm=llm,
         tool_policy=ToolPolicy([tools]),
@@ -149,6 +151,7 @@ async def test_runtime_emits_correlated_tool_and_usage_events() -> None:
         json_parser=FakeJSONParser(),
         context=runtime_context(),
         emit=emit,
+        telemetry=telemetry,
     )
 
     output = await runtime.run(
@@ -170,6 +173,17 @@ async def test_runtime_emits_correlated_tool_and_usage_events() -> None:
     assert all(event.attempt_id == "attempt-1" for event in tool_events)
     assert all(event.agent_id == "agent-1" for event in tool_events)
     assert len([event for event in events if isinstance(event, ResearchUsageEvent)]) == 2
+    assert telemetry.agent_spans == [{
+        "run_id": "run-1",
+        "task_id": "task-1",
+        "attempt_id": "attempt-1",
+        "agent_id": "agent-1",
+        "agent_profile": "worker",
+        "model": "fake-model",
+    }]
+    assert telemetry.tool_spans[0]["tool_name"] == "web_read"
+    assert [item["input_tokens"] for item in telemetry.llm_usage] == [8, 8]
+    assert telemetry.tool_calls[0]["status"] == "completed"
 
 
 async def test_runtime_repairs_invalid_structured_output_once() -> None:

@@ -6,6 +6,7 @@
 @File    : dependencies.py
 """
 import logging
+from functools import lru_cache
 
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,7 @@ from app.infrastructure.external.task.redis_stream_task import RedisStreamTask
 from app.infrastructure.external.web.httpx_web_reader import HttpxWebReader
 from app.infrastructure.repositories.file_app_config_repository import FileAppConfigRepository
 from app.domain.services.flows.research_team_factory import ResearchTeamFlowFactory
+from app.infrastructure.telemetry import OTelResearchTelemetry
 from app.infrastructure.storage.oss import OSS, get_oss
 from app.infrastructure.storage.postgres import get_db_session, get_uow
 from app.infrastructure.storage.redis import RedisClient, get_redis
@@ -38,6 +40,12 @@ from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+@lru_cache
+def get_research_telemetry() -> OTelResearchTelemetry:
+    # Exporters/providers remain deployment concerns; the global API is no-op by default.
+    return OTelResearchTelemetry()
 
 
 def get_app_config_service() -> AppConfigService:
@@ -115,6 +123,7 @@ def get_agent_service(
             web_reader=HttpxWebReader(),
             source_storage=OSSSourceContentStorage(oss.bucket),
             file_storage=file_storage,
+            telemetry=get_research_telemetry(),
         )
         research_flow_factory = team_factory.create
 

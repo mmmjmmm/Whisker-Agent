@@ -48,6 +48,16 @@ def test_noop_telemetry_accepts_structured_metadata() -> None:
         unsupported_claim_rate=0.02,
         independent_domains=5,
     )
+    telemetry.record_worker_active(delta=1)
+    telemetry.record_worker_active(delta=-1)
+    telemetry.record_repair_wave()
+    telemetry.record_source_summary(
+        source_count=8,
+        independent_domains=5,
+    )
+    telemetry.record_retry(reason="ToolTransientError")
+    telemetry.record_timeout(scope="task")
+    telemetry.record_budget_exhausted(resource="max_llm_calls")
 
 
 @pytest.mark.parametrize(

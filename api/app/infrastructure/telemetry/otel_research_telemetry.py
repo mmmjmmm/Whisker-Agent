@@ -68,6 +68,36 @@ class OTelResearchTelemetry:
             unit="{domain}",
             description="Independent source domains per run",
         )
+        self._worker_active = self._meter.create_up_down_counter(
+            "research.worker.active",
+            unit="{worker}",
+            description="Active research workers",
+        )
+        self._repair_waves = self._meter.create_counter(
+            "research.repair.wave",
+            unit="{wave}",
+            description="Research repair waves",
+        )
+        self._source_count = self._meter.create_histogram(
+            "research.source.count",
+            unit="{source}",
+            description="Research sources per run",
+        )
+        self._retries = self._meter.create_counter(
+            "research.retry",
+            unit="{retry}",
+            description="Research task retries",
+        )
+        self._timeouts = self._meter.create_counter(
+            "research.timeout",
+            unit="{timeout}",
+            description="Research task and run timeouts",
+        )
+        self._budget_exhausted = self._meter.create_counter(
+            "research.budget.exhausted",
+            unit="{event}",
+            description="Research budget exhaustion events",
+        )
 
     @contextmanager
     def _span(
@@ -154,8 +184,8 @@ class OTelResearchTelemetry:
         self,
         *,
         run_id: str,
-        task_id: str,
-        attempt_id: str,
+        task_id: str | None,
+        attempt_id: str | None,
         tool_name: str,
     ) -> Iterator[None]:
         metadata = TelemetryAttributes(
@@ -164,16 +194,16 @@ class OTelResearchTelemetry:
             attempt_id=attempt_id,
             tool_name=tool_name,
         )
-        with self._span(
-            f"execute_tool {metadata.tool_name}",
-            {
-                "gen_ai.operation.name": "execute_tool",
-                "gen_ai.tool.name": metadata.tool_name or "",
-                "agent.run.id": metadata.run_id,
-                "agent.task.id": metadata.task_id or "",
-                "agent.attempt.id": metadata.attempt_id or "",
-            },
-        ):
+        attributes = {
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.tool.name": metadata.tool_name or "",
+            "agent.run.id": metadata.run_id,
+        }
+        if metadata.task_id:
+            attributes["agent.task.id"] = metadata.task_id
+        if metadata.attempt_id:
+            attributes["agent.attempt.id"] = metadata.attempt_id
+        with self._span(f"execute_tool {metadata.tool_name}", attributes):
             yield
 
     def record_run_finished(self, *, status: str, elapsed_ms: int) -> None:
@@ -228,3 +258,30 @@ class OTelResearchTelemetry:
         self._citation_coverage.record(citation_coverage)
         self._unsupported_claim_rate.record(unsupported_claim_rate)
         self._independent_domains.record(independent_domains)
+
+    def record_worker_active(self, *, delta: int) -> None:
+        self._worker_active.add(delta)
+
+    def record_repair_wave(self) -> None:
+        self._repair_waves.add(1)
+
+    def record_source_summary(
+        self,
+        *,
+        source_count: int,
+        independent_domains: int,
+    ) -> None:
+        self._source_count.record(source_count)
+        self._independent_domains.record(independent_domains)
+
+    def record_retry(self, *, reason: str) -> None:
+        self._retries.add(1, {"research.retry.reason": reason})
+
+    def record_timeout(self, *, scope: str) -> None:
+        self._timeouts.add(1, {"research.timeout.scope": scope})
+
+    def record_budget_exhausted(self, *, resource: str) -> None:
+        self._budget_exhausted.add(
+            1,
+            {"research.budget.resource": resource},
+        )
