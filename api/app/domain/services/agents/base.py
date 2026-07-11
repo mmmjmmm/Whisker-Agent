@@ -40,6 +40,10 @@ class BaseAgent(ABC):
             llm: LLM,  # 语言模型协议
             json_parser: JSONParser,  # JSON输出解析器
             tools: List[BaseTool],  # 工具列表
+            memory: Optional[Memory] = None,
+            persist_memory: bool = True,
+            memory_key: Optional[str] = None,
+            allowed_tool_names: Optional[set[str] | frozenset[str]] = None,
     ) -> None:
         """构造函数，完成Agent的初始化"""
         self._uow_factory = uow_factory
@@ -47,25 +51,51 @@ class BaseAgent(ABC):
         self._session_id = session_id
         self._agent_config = agent_config
         self._llm = llm
-        self._memory: Optional[Memory] = None
+        self._memory: Optional[Memory] = memory
+        self._persist_memory = persist_memory
+        self._memory_key = memory_key or self.name
+        self._allowed_tool_names = (
+            frozenset(allowed_tool_names)
+            if allowed_tool_names is not None
+            else None
+        )
         self._json_parser = json_parser
         self._tools = tools
 
     async def _ensure_memory(self) -> None:
         """确保智能体记忆是存在的"""
-        if self._memory is None:
-            async with self._uow:
-                self._memory = await self._uow.session.get_memory(self._session_id, self.name)
+        if self._memory is not None:
+            return
+        if not self._persist_memory:
+            self._memory = Memory()
+            return
+        async with self._uow:
+            self._memory = await self._uow.session.get_memory(
+                self._session_id,
+                self._memory_key,
+            )
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
         """获取Agent所有可用的工具列表参数声明/Schema"""
         available_tools = []
         for tool in self._tools:
             available_tools.extend(tool.get_tools())
-        return available_tools
+        if self._allowed_tool_names is None:
+            return available_tools
+        return [
+            schema
+            for schema in available_tools
+            if schema["function"]["name"] in self._allowed_tool_names
+        ]
 
     def _get_tool(self, tool_name: str) -> BaseTool:
         """获取对应工具所在的工具集/包"""
+        if (
+            self._allowed_tool_names is not None
+            and tool_name not in self._allowed_tool_names
+        ):
+            raise PermissionError(f"工具未授权: {tool_name}")
+
         # 1.循环遍历所有工具包
         for tool in self._tools:
             # 2.判断工具包中是否存在该工具
@@ -73,6 +103,17 @@ class BaseAgent(ABC):
                 return tool
 
         raise ValueError(f"未知工具: {tool_name}")
+
+    async def _save_memory(self) -> None:
+        """按当前 Agent 的持久化策略保存 Memory。"""
+        if not self._persist_memory:
+            return
+        async with self._uow:
+            await self._uow.session.save_memory(
+                self._session_id,
+                self._memory_key,
+                self._memory,
+            )
 
     async def _invoke_llm(self, messages: List[Dict[str, Any]], format: Optional[str] = None) -> Dict[str, Any]:
         """调用语言模型并处理记忆内容"""
@@ -161,15 +202,13 @@ class BaseAgent(ABC):
         self._memory.add_messages(messages)
 
         # 4.将记忆持久化到数据仓库中
-        async with self._uow:
-            await self._uow.session.save_memory(self._session_id, self.name, self._memory)
+        await self._save_memory()
 
     async def compact_memory(self) -> None:
         """压缩Agent的记忆"""
         await self._ensure_memory()
         self._memory.compact()
-        async with self._uow:
-            await self._uow.session.save_memory(self._session_id, self.name, self._memory)
+        await self._save_memory()
 
     async def roll_back(self, message: Message) -> None:
         """Agent的状态回滚，该函数用于确保Agent的消息列表状态是正确，用于发送新消息、暂停/停止任务、通知用户"""
@@ -203,8 +242,7 @@ class BaseAgent(ABC):
             self._memory.roll_back()
 
         # 6.将记忆持久化
-        async with self._uow:
-            await self._uow.session.save_memory(self._session_id, self.name, self._memory)
+        await self._save_memory()
 
     async def invoke(self, query: str, format: Optional[str] = None) -> AsyncGenerator[BaseEvent, None]:
         """传递消息+响应格式调用程序生成异步迭代内容"""
