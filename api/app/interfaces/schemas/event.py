@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from app.domain.models.event import Event, PlanEvent, ToolEventStatus, ToolEvent, StepEvent
 from app.domain.models.file import File
 from app.domain.models.plan import ExecutionStatus
+from app.domain.models.team import AgentMode, TaskGraph, TeamTask
 
 
 class BaseEventData(BaseModel):
@@ -82,6 +83,7 @@ class MessageEventData(BaseEventData):
     role: Literal["user", "assistant"] = "assistant"
     message: str = ""
     attachments: List[File] = Field(default_factory=list)
+    agent_mode: Optional[AgentMode] = None
 
 
 class MessageSSEEvent(BaseSSEEvent):
@@ -97,8 +99,30 @@ class MessageSSEEvent(BaseSSEEvent):
                 role=event.role,
                 message=event.message,
                 attachments=event.attachments,
+                agent_mode=event.agent_mode,
             )
         )
+
+
+class TaskGraphEventData(BaseEventData):
+    graph: TaskGraph
+
+
+class TaskGraphSSEEvent(BaseSSEEvent):
+    event: Literal["task_graph"] = "task_graph"
+    data: TaskGraphEventData
+
+
+class TeamTaskEventData(BaseEventData):
+    graph_id: str
+    task: TeamTask
+    agent_id: Optional[str] = None
+    attempt: int = 0
+
+
+class TeamTaskSSEEvent(BaseSSEEvent):
+    event: Literal["task"] = "task"
+    data: TeamTaskEventData
 
 
 class TitleEventData(BaseEventData):
@@ -172,6 +196,10 @@ class ToolEventData(BaseEventData):
     function: str  # 工具名字
     args: Dict[str, Any]  # 工具参数
     content: Optional[Any] = None  # 工具调用结果
+    graph_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    attempt: Optional[int] = None
 
 
 class ToolSSEEvent(BaseSSEEvent):
@@ -190,6 +218,10 @@ class ToolSSEEvent(BaseSSEEvent):
                 function=event.function_name,
                 args=event.function_args,
                 content=event.tool_content,
+                graph_id=event.graph_id,
+                task_id=event.task_id,
+                agent_id=event.agent_id,
+                attempt=event.attempt,
             )
         )
 
@@ -222,6 +254,8 @@ AgentSSEEvent = Union[
     TitleSSEEvent,
     StepSSEEvent,
     PlanSSEEvent,
+    TaskGraphSSEEvent,
+    TeamTaskSSEEvent,
     ToolSSEEvent,
     DoneSSEEvent,
     ErrorSSEEvent,

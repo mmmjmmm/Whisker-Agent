@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from .file import File
 from .plan import Plan, Step
 from .search import SearchResultItem
+from .team import AgentMode, TaskGraph, TeamTask
 from .tool_result import ToolResult
 
 
@@ -71,6 +72,24 @@ class MessageEvent(BaseEvent):
     role: Literal["user", "assistant"] = "assistant"  # 消息角色
     message: str = ""  # 消息本身
     attachments: List[File] = Field(default_factory=list)  # 附件列表信息
+    agent_mode: Optional[AgentMode] = None
+
+
+class TaskGraphEvent(BaseEvent):
+    """Team DAG 的完整快照事件。"""
+
+    type: Literal["task_graph"] = "task_graph"
+    graph: TaskGraph
+
+
+class TeamTaskEvent(BaseEvent):
+    """Team DAG 单节点状态更新事件。"""
+
+    type: Literal["task"] = "task"
+    graph_id: str
+    task: TeamTask
+    agent_id: Optional[str] = None
+    attempt: int = 0
 
 
 class BrowserToolContent(BaseModel):
@@ -123,6 +142,10 @@ class ToolEvent(BaseEvent):
     function_args: Dict[str, Any]  # LLM生成的工具调用参数
     function_result: Optional[ToolResult] = None  # 工具调用结果
     status: ToolEventStatus = ToolEventStatus.CALLING  # 工具事件状态
+    graph_id: Optional[str] = None
+    task_id: Optional[str] = None
+    agent_id: Optional[str] = None
+    attempt: Optional[int] = None
 
 
 class WaitEvent(BaseEvent):
@@ -148,6 +171,8 @@ Event = Annotated[
         TitleEvent,
         StepEvent,
         MessageEvent,
+        TaskGraphEvent,
+        TeamTaskEvent,
         ToolEvent,
         WaitEvent,
         ErrorEvent,
