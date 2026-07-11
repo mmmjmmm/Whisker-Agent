@@ -127,4 +127,54 @@ describe("getLatestTeamProjection", () => {
 
     expect(getLatestTeamProjection(events)).toBeNull();
   });
+
+  it("keeps retries with reused tool call ids as separate attempts", () => {
+    const events = [
+      { type: "task_graph", data: { graph: graphFixture } },
+      {
+        type: "tool",
+        data: {
+          tool_call_id: "reused",
+          name: "search",
+          function: "search_web",
+          args: {},
+          status: "called",
+          graph_id: "g",
+          task_id: "a",
+          attempt: 1,
+        },
+      },
+      {
+        type: "tool",
+        data: {
+          tool_call_id: "reused",
+          name: "search",
+          function: "search_web",
+          args: {},
+          status: "calling",
+          graph_id: "g",
+          task_id: "a",
+          attempt: 2,
+        },
+      },
+    ] as SSEEventData[];
+
+    expect(getLatestTeamProjection(events)?.toolsByTask.a).toHaveLength(2);
+  });
+
+  it("derives a running graph while a task is running", () => {
+    const events = [
+      { type: "task_graph", data: { graph: graphFixture } },
+      {
+        type: "task",
+        data: {
+          graph_id: "g",
+          task: { ...graphFixture.tasks[0], status: "running" },
+          attempt: 1,
+        },
+      },
+    ] as SSEEventData[];
+
+    expect(getLatestTeamProjection(events)?.graph.status).toBe("running");
+  });
 });

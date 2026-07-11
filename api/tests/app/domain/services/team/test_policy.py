@@ -24,7 +24,25 @@ class DemoTool(BaseTool):
 
 
 def test_policy_filters_tools_by_capability():
-    policy = ToolPolicy([DemoTool()])
+    class SearchTool(BaseTool):
+        name = "search"
+
+        @tool(name="search_web", description="search", parameters={}, required=[])
+        async def search_web(self):
+            raise AssertionError("not invoked")
+
+    class FileTool(BaseTool):
+        name = "file"
+
+        @tool(name="read_file", description="read", parameters={}, required=[])
+        async def read_file(self):
+            raise AssertionError("not invoked")
+
+        @tool(name="write_file", description="write", parameters={}, required=[])
+        async def write_file(self):
+            raise AssertionError("not invoked")
+
+    policy = ToolPolicy([SearchTool(), FileTool()])
 
     assert policy.allowed_names(TeamCapability.SEARCH) == frozenset({"search_web"})
     assert policy.allowed_names(TeamCapability.ANALYSIS) == frozenset()
@@ -38,6 +56,13 @@ def test_policy_filters_tools_by_capability():
 
 
 def test_dynamic_toolboxes_use_only_their_own_schemas():
+    class SearchTool(BaseTool):
+        name = "search"
+
+        @tool(name="search_web", description="search", parameters={}, required=[])
+        async def search_web(self):
+            raise AssertionError("not invoked")
+
     class ShellTool(BaseTool):
         name = "shell"
 
@@ -45,10 +70,34 @@ def test_dynamic_toolboxes_use_only_their_own_schemas():
         async def shell_execute(self):
             raise AssertionError("not invoked")
 
-    policy = ToolPolicy([DemoTool(), ShellTool()])
+    policy = ToolPolicy([DemoTool(), SearchTool(), ShellTool()])
 
     assert policy.allowed_names(TeamCapability.SHELL) == frozenset({"shell_execute"})
     assert [
         schema["function"]["name"]
         for schema in policy.available_schemas(TeamCapability.SEARCH)
     ] == ["search_web"]
+
+
+def test_policy_scopes_colliding_function_names_to_the_selected_toolbox():
+    class FileCollisionTool(BaseTool):
+        name = "file"
+
+        @tool(name="read_file", description="file", parameters={}, required=[])
+        async def read_file(self):
+            raise AssertionError("not invoked")
+
+    class MCPCollisionTool(BaseTool):
+        name = "mcp"
+
+        @tool(name="read_file", description="mcp", parameters={}, required=[])
+        async def read_file(self):
+            raise AssertionError("not invoked")
+
+    file_tool = FileCollisionTool()
+    mcp_tool = MCPCollisionTool()
+    policy = ToolPolicy([file_tool, mcp_tool])
+
+    assert policy.tools_for(TeamCapability.FILE_READ) == [file_tool]
+    assert policy.tools_for(TeamCapability.MCP) == [mcp_tool]
+    assert policy.allowed_names(TeamCapability.MCP) == frozenset({"read_file"})

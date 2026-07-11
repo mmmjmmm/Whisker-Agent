@@ -314,10 +314,10 @@ export type ToolEvent = {
   args: Record<string, unknown>;
   content?: unknown;
   status?: ToolEventStatus;
-  graph_id?: string;
-  task_id?: string;
-  agent_id?: string;
-  attempt?: number;
+  graph_id?: string | null;
+  task_id?: string | null;
+  agent_id?: string | null;
+  attempt?: number | null;
   [key: string]: unknown;
 };
 

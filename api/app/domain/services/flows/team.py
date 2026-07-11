@@ -321,7 +321,7 @@ def build_team_flow(
             agent_config=worker_config,
             llm=llm,
             json_parser=json_parser,
-            tools=tools,
+            tools=policy.tools_for(task.capability),
             memory=Memory(),
             persist_memory=False,
             allowed_tool_names=policy.allowed_names(task.capability),

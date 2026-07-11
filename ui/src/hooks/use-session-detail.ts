@@ -96,6 +96,22 @@ export function useSessionDetail(
       }
     }
 
+    if (
+      evToAppend.type === "task_graph" &&
+      (evToAppend.data.graph.status === "pending" ||
+        evToAppend.data.graph.status === "running")
+    ) {
+      setSession((prev) => (prev ? { ...prev, status: "running" } : null));
+    }
+
+    if (
+      evToAppend.type === "task" &&
+      (evToAppend.data.task.status === "running" ||
+        evToAppend.data.task.status === "retrying")
+    ) {
+      setSession((prev) => (prev ? { ...prev, status: "running" } : null));
+    }
+
     // message_ask_user calling → 等待用户输入，切换为 waiting
     if (evToAppend.type === "tool") {
       const toolData = evToAppend.data as {
@@ -330,20 +346,17 @@ export function useSessionDetail(
           setError(err instanceof Error ? err : new Error("流式响应异常"));
           setStreaming(false);
           isSendMessageRef.current = false;
-          setSession((prev) =>
-            prev ? { ...prev, status: "completed" } : null,
-          );
           if (messageStreamCleanupRef.current) {
             messageStreamCleanupRef.current();
             messageStreamCleanupRef.current = null;
           }
-          startEmptyStream();
+          void refresh();
         },
       );
       // 将消息流的 cleanup 存到独立的 ref，不与 emptyStream 混淆
       messageStreamCleanupRef.current = messageStreamCleanup;
     },
-    [sessionId, appendEvent, startEmptyStream, stopEmptyStream],
+    [sessionId, appendEvent, refresh, startEmptyStream, stopEmptyStream],
   );
 
   return {

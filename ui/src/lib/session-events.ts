@@ -360,6 +360,12 @@ export function getLatestTeamProjection(
           ? structuredClone(event.data.task)
           : task,
       );
+      if (
+        event.data.task.status === "running" ||
+        event.data.task.status === "retrying"
+      ) {
+        graph.status = "running";
+      }
       continue;
     }
 
@@ -377,7 +383,9 @@ export function getLatestTeamProjection(
     const tools = [...(toolsByTask[taskId] ?? [])];
     const index = event.data.tool_call_id
       ? tools.findIndex(
-          (tool) => tool.tool_call_id === event.data.tool_call_id,
+          (tool) =>
+            tool.tool_call_id === event.data.tool_call_id &&
+            (tool.attempt ?? null) === (event.data.attempt ?? null),
         )
       : -1;
     if (index >= 0) {
