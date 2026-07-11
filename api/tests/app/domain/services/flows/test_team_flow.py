@@ -60,6 +60,66 @@ def test_tool_producer_waits_until_event_is_published():
     asyncio.run(scenario())
 
 
+class TwoEventOrchestrator:
+    def __init__(self):
+        self.second_emit_started = asyncio.Event()
+
+    async def run(self, graph, attachments, emit):
+        task = graph.tasks[0]
+        task.status = TeamTaskStatus.RUNNING
+        await emit(
+            TeamTaskEvent(
+                graph_id=graph.id,
+                task=task.model_copy(deep=True),
+                attempt=1,
+            ),
+            True,
+        )
+        self.second_emit_started.set()
+        task.status = TeamTaskStatus.COMPLETED
+        await emit(
+            TeamTaskEvent(
+                graph_id=graph.id,
+                task=task.model_copy(deep=True),
+                attempt=1,
+            ),
+            True,
+        )
+        finalize_graph(graph)
+        return graph
+
+
+def test_closing_consumer_nacks_event_and_cleans_up_producer():
+    async def scenario():
+        orchestrator = TwoEventOrchestrator()
+        flow = TeamFlow(
+            uow_factory=FakeUow,
+            session_id="session-1",
+            team_max_tasks=5,
+            planner=ReplanningPlanner(),
+            orchestrator=orchestrator,
+            synthesizer_factory=FakeSynthesizer,
+        )
+        stream = flow.invoke(Message(message="research"))
+
+        assert (await anext(stream)).type == "title"
+        assert (await anext(stream)).type == "task_graph"
+        assert (await anext(stream)).type == "task"
+
+        await stream.aclose()
+        await asyncio.sleep(0)
+        try:
+            assert flow._producer is not None
+            assert flow._producer.done()
+            assert not orchestrator.second_emit_started.is_set()
+        finally:
+            if flow._producer and not flow._producer.done():
+                flow._producer.cancel()
+                await asyncio.gather(flow._producer, return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 class FakeSessionRepository:
     def __init__(self):
         self.statuses = []

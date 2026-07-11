@@ -9,6 +9,7 @@ import asyncio
 import io
 import logging
 import uuid
+from contextlib import aclosing
 from typing import List, AsyncGenerator, Callable, BinaryIO
 
 from fastapi import UploadFile
@@ -347,16 +348,17 @@ class AgentTaskRunner(TaskRunner):
 
         # 2.调用流并运行获取事件信息
         self._active_flow = self._flow_router.resolve(mode)
-        async for event in self._active_flow.invoke(message):
-            # 3.判断是否为工具事件，如果是则额外处理
-            if isinstance(event, ToolEvent):
-                await self._handle_tool_event(event)
-            elif isinstance(event, MessageEvent):
-                # 4.如果是消息事件则将AI消息事件中的附件同步到存储中
-                await self._sync_message_attachments_to_storage(event)
+        async with aclosing(self._active_flow.invoke(message)) as flow_events:
+            async for event in flow_events:
+                # 3.判断是否为工具事件，如果是则额外处理
+                if isinstance(event, ToolEvent):
+                    await self._handle_tool_event(event)
+                elif isinstance(event, MessageEvent):
+                    # 4.如果是消息事件则将AI消息事件中的附件同步到存储中
+                    await self._sync_message_attachments_to_storage(event)
 
-            # 5.将事件直接返回
-            yield event
+                # 5.将事件直接返回
+                yield event
 
     async def _persist_cancellation(self, task: Task) -> None:
         """由 Runner 按顺序持久化活动 Flow 的取消快照。"""
@@ -413,32 +415,43 @@ class AgentTaskRunner(TaskRunner):
                 )
 
                 # 6.传递消息对象并运行PlannerReActFlow
-                async for event in self._run_flow(message_obj, mode):
-                    # 7.将得到的事件添加到消息队列中
-                    await self._put_and_add_event(task, event)
+                async with aclosing(
+                    self._run_flow(message_obj, mode)
+                ) as flow_events:
+                    async for event in flow_events:
+                        # 7.将得到的事件添加到消息队列中
+                        await self._put_and_add_event(task, event)
 
-                    # 8.如果事件类型为标题事件则更新会话标题
-                    if isinstance(event, TitleEvent):
-                        async with self._uow:
-                            await self._uow.session.update_title(self._session_id, event.title)
-                    elif isinstance(event, MessageEvent):
-                        # 9.如果事件为消息事件，则更新最新消息并新增未读消息数
-                        async with self._uow:
-                            await self._uow.session.update_latest_message(
-                                self._session_id,
-                                event.message,
-                                event.created_at,
-                            )
-                            await self._uow.session.increment_unread_message_count(self._session_id)
-                    elif isinstance(event, WaitEvent):
-                        # 10.如果事件为等待，则更新会话状态并终止程序
-                        async with self._uow:
-                            await self._uow.session.update_status(self._session_id, SessionStatus.WAITING)
-                        return
+                        # 8.如果事件类型为标题事件则更新会话标题
+                        if isinstance(event, TitleEvent):
+                            async with self._uow:
+                                await self._uow.session.update_title(
+                                    self._session_id,
+                                    event.title,
+                                )
+                        elif isinstance(event, MessageEvent):
+                            # 9.更新最新消息并新增未读消息数
+                            async with self._uow:
+                                await self._uow.session.update_latest_message(
+                                    self._session_id,
+                                    event.message,
+                                    event.created_at,
+                                )
+                                await self._uow.session.increment_unread_message_count(
+                                    self._session_id
+                                )
+                        elif isinstance(event, WaitEvent):
+                            # 10.等待用户输入并终止本轮
+                            async with self._uow:
+                                await self._uow.session.update_status(
+                                    self._session_id,
+                                    SessionStatus.WAITING,
+                                )
+                            return
 
-                    # 11.判断如果输入消息队列为空则跳出循环
-                    if not await task.input_stream.is_empty():
-                        break
+                        # 11.新输入到达时显式关闭当前 Flow
+                        if not await task.input_stream.is_empty():
+                            break
 
             # 12.更新会话状态为已完成
             async with self._uow:

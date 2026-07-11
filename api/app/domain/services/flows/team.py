@@ -45,6 +45,10 @@ class EventEnvelope:
         if not self.published.done():
             self.published.set_result(None)
 
+    def abort(self) -> None:
+        if not self.published.done():
+            self.published.cancel()
+
 
 class QueuedEventEmitter:
     def __init__(self):
@@ -70,6 +74,17 @@ class QueuedEventEmitter:
         if not self._closed:
             self._closed = True
             await self._queue.put(None)
+
+    async def abort_pending(self) -> None:
+        """关闭队列并取消尚未得到发布确认的信封。"""
+        self._closed = True
+        while True:
+            try:
+                envelope = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if envelope is not None:
+                envelope.abort()
 
 
 class TeamFlow(BaseFlow):
@@ -146,62 +161,76 @@ class TeamFlow(BaseFlow):
                 await emitter.close()
 
         self._producer = asyncio.create_task(produce())
-        while True:
-            envelope = await emitter.get()
-            if envelope is None:
-                break
-            try:
-                yield envelope.event
-            finally:
-                envelope.confirm()
-
         try:
-            self._graph = await self._producer
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            self._graph.status = TaskGraphStatus.FAILED
-            self._graph.error = f"scheduler_error: {exc}"
-            self._done = True
-            yield TaskGraphEvent(graph=self._graph.model_copy(deep=True))
-            yield ErrorEvent(error=f"Team 调度失败: {exc}")
-            return
-
-        yield TaskGraphEvent(graph=self._graph.model_copy(deep=True))
-
-        if self._graph.status in {
-            TaskGraphStatus.COMPLETED,
-            TaskGraphStatus.PARTIAL,
-        }:
-            last_error = None
-            for _ in range(2):
-                try:
-                    final = await self._synthesizer_factory().synthesize(
-                        self._graph
-                    )
-                    yield MessageEvent(
-                        role="assistant",
-                        message=final.message,
-                        attachments=[
-                            File(filepath=path) for path in final.attachments
-                        ],
-                    )
+            while True:
+                envelope = await emitter.get()
+                if envelope is None:
                     break
-                except Exception as exc:
-                    last_error = str(exc)
-            else:
-                self._done = True
-                yield ErrorEvent(error=f"Team 汇总失败: {last_error}")
-                return
-        elif self._graph.status is TaskGraphStatus.FAILED:
-            self._done = True
-            yield ErrorEvent(
-                error=self._graph.error or "所有 Team Task 均失败"
-            )
-            return
+                try:
+                    yield envelope.event
+                except BaseException:
+                    envelope.abort()
+                    raise
+                else:
+                    envelope.confirm()
 
-        self._done = True
-        yield DoneEvent()
+            try:
+                self._graph = await self._producer
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._graph.status = TaskGraphStatus.FAILED
+                self._graph.error = f"scheduler_error: {exc}"
+                self._done = True
+                yield TaskGraphEvent(graph=self._graph.model_copy(deep=True))
+                yield ErrorEvent(error=f"Team 调度失败: {exc}")
+                return
+
+            yield TaskGraphEvent(graph=self._graph.model_copy(deep=True))
+
+            if self._graph.status in {
+                TaskGraphStatus.COMPLETED,
+                TaskGraphStatus.PARTIAL,
+            }:
+                last_error = None
+                for _ in range(2):
+                    try:
+                        final = await self._synthesizer_factory().synthesize(
+                            self._graph
+                        )
+                        yield MessageEvent(
+                            role="assistant",
+                            message=final.message,
+                            attachments=[
+                                File(filepath=path)
+                                for path in final.attachments
+                            ],
+                        )
+                        break
+                    except Exception as exc:
+                        last_error = str(exc)
+                else:
+                    self._done = True
+                    yield ErrorEvent(error=f"Team 汇总失败: {last_error}")
+                    return
+            elif self._graph.status is TaskGraphStatus.FAILED:
+                self._done = True
+                yield ErrorEvent(
+                    error=self._graph.error or "所有 Team Task 均失败"
+                )
+                return
+
+            self._done = True
+            yield DoneEvent()
+        finally:
+            if self._producer is not None and not self._producer.done():
+                self._producer.cancel()
+                await asyncio.gather(
+                    self._producer,
+                    return_exceptions=True,
+                )
+            await emitter.abort_pending()
+            self._done = True
 
     async def cancel_events(self) -> list[BaseEvent]:
         if self._graph is None:
@@ -212,6 +241,7 @@ class TeamFlow(BaseFlow):
             TeamTaskStatus.PENDING,
             TeamTaskStatus.RUNNING,
             TeamTaskStatus.RETRYING,
+            TeamTaskStatus.CANCELLED,
         }
         active_ids = {
             task.id
