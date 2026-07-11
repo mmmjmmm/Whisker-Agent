@@ -221,6 +221,11 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
         const tool = ev.data as ToolEvent;
         const toolCallId = (tool as { tool_call_id?: string }).tool_call_id;
 
+        // Team 工具由 Research reducer 按 task_id 归组，不参与旧 ReAct Step 推断。
+        if (typeof tool.task_id === "string" && tool.task_id.length > 0) {
+          break;
+        }
+
         if (lastStepId !== null) {
           // 工具属于当前 step，添加到 step 的 tools 中
           // 重要：从后往前查找，确保找到最新的（最后一个）匹配的 step

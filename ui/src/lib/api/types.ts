@@ -22,6 +22,44 @@ export type ExecutionStatus = "pending" | "running" | "completed" | "failed";
  */
 export type ToolEventStatus = "calling" | "called";
 
+export type AgentMode = "react" | "research_team";
+
+export type RunStatus =
+  | "pending"
+  | "planning"
+  | "running"
+  | "reviewing"
+  | "synthesizing"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "interrupted";
+
+export type ResearchTaskStatus =
+  | "pending"
+  | "ready"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "cancelled"
+  | "timed_out"
+  | "interrupted";
+
+export type EventCorrelation = {
+  event_id?: string;
+  created_at?: number;
+  schema_version?: string;
+  session_id?: string | null;
+  run_id?: string | null;
+  task_id?: string | null;
+  attempt_id?: string | null;
+  agent_id?: string | null;
+  parent_event_id?: string | null;
+  sequence_no?: number | null;
+};
+
 /**
  * MCP 传输类型
  */
@@ -194,7 +232,102 @@ export type ChatMessage = {
 export type ChatParams = {
   message?: string;
   attachments?: string[];
+  mode?: AgentMode;
+  budget_profile?: "default";
+  event_id?: string;
   [key: string]: unknown;
+};
+
+export type RunBudget = {
+  max_workers: number;
+  max_tasks: number;
+  max_graph_depth: number;
+  max_research_waves: number;
+  max_attempts_per_task: number;
+  task_timeout_seconds: number;
+  run_timeout_seconds: number;
+  max_llm_calls: number;
+  max_tool_calls: number;
+  max_total_tokens: number;
+};
+
+export type RunUsage = {
+  llm_calls: number;
+  tool_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  worker_attempts: number;
+  elapsed_ms: number;
+};
+
+export type AgentRun = {
+  id: string;
+  session_id: string;
+  mode: AgentMode;
+  status: RunStatus;
+  goal: string;
+  plan_version?: number;
+  budget_snapshot?: RunBudget;
+  usage: RunUsage;
+  error?: { type?: string; message?: string; [key: string]: unknown } | null;
+  heartbeat_at?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ResearchTask = {
+  id: string;
+  run_id: string;
+  plan_version: number;
+  task_key: string;
+  description: string;
+  objective: string;
+  capability_profile: "research_readonly" | "analysis";
+  dependency_ids: string[];
+  acceptance_criteria: string[];
+  source_requirements: Record<string, unknown>;
+  required: boolean;
+  priority: number;
+  status: ResearchTaskStatus;
+  assigned_agent_id: string | null;
+  result_summary: string | null;
+  error: { type?: string; message?: string; [key: string]: unknown } | null;
+  attempt_count: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ResearchSource = {
+  id: string;
+  run_id: string;
+  canonical_url: string;
+  original_url: string;
+  title: string;
+  domain: string;
+  publisher: string | null;
+  published_at: string | null;
+  retrieved_at: string;
+  content_type: string;
+  content_hash: string;
+  source_class: string;
+  metadata: Record<string, unknown>;
+};
+
+export type ResearchReview = {
+  approved: boolean;
+  issues: string[];
+  conflicts: string[];
+  missing_questions: string[];
+  repair_tasks: unknown[];
+};
+
+export type ResearchUsage = EventCorrelation & {
+  budget: Partial<RunBudget>;
+  usage: Partial<RunUsage>;
+  remaining: Record<string, number>;
 };
 
 /**
@@ -236,11 +369,17 @@ export type StepEvent = {
  * 工具调用事件
  */
 export type ToolEvent = {
+  tool_call_id?: string;
   name: string;
   function: string;
   args: Record<string, unknown>;
   content?: unknown;
   status?: ToolEventStatus;
+  run_id?: string | null;
+  task_id?: string | null;
+  attempt_id?: string | null;
+  agent_id?: string | null;
+  sequence_no?: number | null;
   [key: string]: unknown;
 };
 
@@ -255,7 +394,13 @@ export type SSEEventType =
   | "tool"
   | "wait"
   | "done"
-  | "error";
+  | "error"
+  | "run"
+  | "research_plan"
+  | "research_task"
+  | "research_source"
+  | "research_review"
+  | "research_usage";
 
 /**
  * SSE 事件数据
@@ -268,7 +413,33 @@ export type SSEEventData =
   | { type: "tool"; data: ToolEvent }
   | { type: "wait"; data: Record<string, unknown> }
   | { type: "done"; data: Record<string, unknown> }
-  | { type: "error"; data: { error: string } };
+  | { type: "error"; data: EventCorrelation & { error: string; scope?: string } }
+  | {
+      type: "run";
+      data: EventCorrelation & {
+        status: RunStatus;
+        goal: string;
+        usage: Partial<RunUsage>;
+        error?: AgentRun["error"];
+      };
+    }
+  | {
+      type: "research_plan";
+      data: EventCorrelation & { plan: Record<string, unknown>; status: string };
+    }
+  | {
+      type: "research_task";
+      data: EventCorrelation & { task: ResearchTask; status: ResearchTaskStatus };
+    }
+  | {
+      type: "research_source";
+      data: EventCorrelation & { source: ResearchSource };
+    }
+  | {
+      type: "research_review";
+      data: EventCorrelation & { review: ResearchReview };
+    }
+  | { type: "research_usage"; data: ResearchUsage };
 
 /**
  * SSE 事件处理器
@@ -304,4 +475,3 @@ export type ViewShellParams = {
   shell_session_id: string;
   [key: string]: unknown;
 };
-

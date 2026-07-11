@@ -12,6 +12,10 @@ import type {
  * 配置模块 API
  */
 export const configApi = {
+  getCapabilities: (): Promise<{ research_team: boolean }> => {
+    return get<{ research_team: boolean }>("/app-config/capabilities");
+  },
+
   /**
    * 获取 LLM 配置
    */
@@ -110,4 +114,3 @@ export const configApi = {
     );
   },
 };
-

@@ -5,6 +5,9 @@ import type {
   SessionsData,
   CreateSessionParams,
   ChatParams,
+  AgentRun,
+  ResearchTask,
+  ResearchSource,
   SessionFile,
   ViewFileParams,
   ViewShellParams,
@@ -118,6 +121,34 @@ export const sessionApi = {
    */
   getSessionDetail: (sessionId: string): Promise<SessionDetail> => {
     return get<SessionDetail>(`/sessions/${sessionId}`);
+  },
+
+  getRun: (sessionId: string, runId: string): Promise<AgentRun> => {
+    return get<AgentRun>(`/sessions/${sessionId}/runs/${runId}`);
+  },
+
+  getRunTasks: (
+    sessionId: string,
+    runId: string
+  ): Promise<ResearchTask[]> => {
+    return get<ResearchTask[]>(`/sessions/${sessionId}/runs/${runId}/tasks`);
+  },
+
+  getRunSources: (
+    sessionId: string,
+    runId: string
+  ): Promise<ResearchSource[]> => {
+    return get<ResearchSource[]>(`/sessions/${sessionId}/runs/${runId}/sources`);
+  },
+
+  cancelRun: (
+    sessionId: string,
+    runId: string
+  ): Promise<{ run_id: string; status: AgentRun["status"] }> => {
+    return post<{ run_id: string; status: AgentRun["status"] }>(
+      `/sessions/${sessionId}/runs/${runId}/cancel`,
+      {}
+    );
   },
 
   /**
@@ -253,4 +284,3 @@ export const sessionApi = {
     );
   },
 };
-
