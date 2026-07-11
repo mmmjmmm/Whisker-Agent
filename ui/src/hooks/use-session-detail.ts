@@ -1,9 +1,61 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sessionApi } from "@/lib/api/session";
 import { normalizeEvent, normalizeEvents } from "@/lib/session-events";
-import type { AgentMode, SessionDetail, SSEEventData, SessionFile } from "@/lib/api/types";
+import {
+  reduceResearchEvents,
+  type ResearchRunView,
+} from "@/lib/research-events";
+import type {
+  AgentMode,
+  AgentRun,
+  ResearchSource,
+  ResearchTask,
+  RunStatus,
+  SessionDetail,
+  SSEEventData,
+  SessionFile,
+} from "@/lib/api/types";
+
+const TERMINAL_RUN_STATUSES = new Set<RunStatus>([
+  "completed",
+  "partial",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+
+function latestRunId(events: SSEEventData[]): string | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const runId = (events[index].data as { run_id?: unknown }).run_id;
+    if (typeof runId === "string" && runId) return runId;
+  }
+  return null;
+}
+
+function createResearchSnapshot(
+  projection: ResearchRunView,
+  run: AgentRun,
+  tasks: ResearchTask[],
+  sources: ResearchSource[],
+): ResearchRunView {
+  return {
+    ...projection,
+    run,
+    taskOrder: tasks.map((task) => task.id),
+    tasks: Object.fromEntries(
+      tasks.map((task) => [
+        task.id,
+        {
+          ...task,
+          tools: projection.tasks[task.id]?.tools ?? [],
+        },
+      ]),
+    ),
+    sources: Object.fromEntries(sources.map((source) => [source.id, source])),
+  };
+}
 
 export type UseSessionDetailResult = {
   session: SessionDetail | null;
@@ -19,6 +71,7 @@ export type UseSessionDetailResult = {
     mode?: AgentMode,
   ) => Promise<void>;
   streaming: boolean;
+  researchRun: ResearchRunView | null;
 };
 
 /**
@@ -35,6 +88,8 @@ export function useSessionDetail(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [researchSnapshot, setResearchSnapshot] =
+    useState<ResearchRunView | null>(null);
   const [skipEmptyStream, setSkipEmptyStream] = useState(
     initialSkipEmptyStream || false,
   );
@@ -65,6 +120,10 @@ export function useSessionDetail(
     if (eventId) lastEventIdRef.current = eventId;
 
     setEvents((prev) => [...prev, evToAppend]);
+    setResearchSnapshot((previous) => {
+      if (!previous) return null;
+      return reduceResearchEvents([evToAppend], previous);
+    });
 
     // 更新会话标题
     if (
@@ -117,9 +176,25 @@ export function useSessionDetail(
       setSession((prev) => (prev ? { ...prev, status: "completed" } : null));
     }
 
-    // error 事件时也可以认为任务结束
+    if (evToAppend.type === "run") {
+      if (TERMINAL_RUN_STATUSES.has(evToAppend.data.status)) {
+        setSession((prev) =>
+          prev ? { ...prev, status: "completed" } : null,
+        );
+      } else {
+        setSession((prev) => (prev ? { ...prev, status: "running" } : null));
+      }
+    }
+
+    // Task scoped 错误只影响对应 Worker，不结束整个 Team Run。
     if (evToAppend.type === "error") {
-      setSession((prev) => (prev ? { ...prev, status: "completed" } : null));
+      const taskScoped =
+        Boolean(evToAppend.data.task_id) || evToAppend.data.scope === "task";
+      if (!taskScoped) {
+        setSession((prev) =>
+          prev ? { ...prev, status: "completed" } : null,
+        );
+      }
     }
   }, []);
 
@@ -191,9 +266,42 @@ export function useSessionDetail(
       setSession(detail);
       setFiles(normalizeFileList(fileListRaw));
       const rawEvents = (detail as { events?: unknown }).events;
-      if (rawEvents && Array.isArray(rawEvents) && rawEvents.length > 0) {
-        const normalized = normalizeEvents(rawEvents);
-        setEvents(normalized);
+      const normalized = Array.isArray(rawEvents)
+        ? normalizeEvents(rawEvents)
+        : [];
+      setEvents(normalized);
+      const projection = reduceResearchEvents(normalized);
+      const runId = projection.run?.id ?? latestRunId(normalized);
+
+      if (runId) {
+        try {
+          const [run, tasks, sources] = await Promise.all([
+            sessionApi.getRun(sessionId, runId),
+            sessionApi.getRunTasks(sessionId, runId),
+            sessionApi.getRunSources(sessionId, runId),
+          ]);
+          setResearchSnapshot(
+            createResearchSnapshot(projection, run, tasks, sources),
+          );
+          setSession((current) =>
+            current
+              ? {
+                  ...current,
+                  status: TERMINAL_RUN_STATUSES.has(run.status)
+                    ? "completed"
+                    : "running",
+                }
+              : null,
+          );
+        } catch (researchError) {
+          console.warn("恢复研究运行详情失败:", researchError);
+          setResearchSnapshot(projection.run ? projection : null);
+        }
+      } else {
+        setResearchSnapshot(null);
+      }
+
+      if (normalized.length > 0) {
         const lastEvId = (
           normalized[normalized.length - 1]?.data as { event_id?: string }
         )?.event_id;
@@ -222,6 +330,7 @@ export function useSessionDetail(
       setSession(null);
       setFiles([]);
       setEvents([]);
+      setResearchSnapshot(null);
       setError(null);
       stopEmptyStream();
       return;
@@ -282,6 +391,7 @@ export function useSessionDetail(
       setSkipEmptyStream(false);
       isSendMessageRef.current = true;
       setStreaming(true);
+      setResearchSnapshot(null);
 
       // 立即更新状态为 running，不等待 SSE 事件
       setSession((prev) => (prev ? { ...prev, status: "running" } : null));
@@ -344,6 +454,14 @@ export function useSessionDetail(
     [sessionId, appendEvent, startEmptyStream, stopEmptyStream],
   );
 
+  const projectedResearchRun = useMemo(
+    () => reduceResearchEvents(events),
+    [events],
+  );
+  const researchRun =
+    researchSnapshot ??
+    (projectedResearchRun.run ? projectedResearchRun : null);
+
   return {
     session,
     files,
@@ -354,5 +472,6 @@ export function useSessionDetail(
     refreshFiles,
     sendMessage,
     streaming,
+    researchRun,
   };
 }

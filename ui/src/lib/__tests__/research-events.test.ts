@@ -107,4 +107,37 @@ describe("reduceResearchEvents", () => {
 
     expect(state.taskOrder).toEqual(["a", "b"]);
   });
+
+  it("clears task state when a newer run starts in the same session", () => {
+    const state = reduceResearchEvents([
+      event("run", {
+        session_id: "session-1",
+        run_id: "run-1",
+        sequence_no: 1,
+        status: "running",
+        goal: "first",
+        usage: {},
+      }),
+      event("research_task", {
+        run_id: "run-1",
+        task_id: "a",
+        sequence_no: 2,
+        status: "running",
+        task: task("a"),
+      }),
+      event("run", {
+        session_id: "session-1",
+        run_id: "run-2",
+        sequence_no: 3,
+        status: "planning",
+        goal: "second",
+        usage: {},
+      }),
+    ]);
+
+    expect(state.run?.id).toBe("run-2");
+    expect(state.taskOrder).toEqual([]);
+    expect(state.tasks).toEqual({});
+    expect(state.sources).toEqual({});
+  });
 });

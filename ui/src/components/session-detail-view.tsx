@@ -8,6 +8,7 @@ import { PlanPanel } from '@/components/plan-panel'
 import { ChatMessage } from '@/components/chat-message'
 import { FilePreviewPanel } from '@/components/file-preview-panel'
 import { ToolPreviewPanel } from '@/components/tool-preview-panel'
+import { ResearchRunPanel } from '@/components/research-run-panel'
 import { VNCOverlay } from '@/components/vnc-overlay'
 import { useSessionDetail } from '@/hooks/use-session-detail'
 import { getToolKind } from '@/components/tool-use/utils'
@@ -63,6 +64,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
     refreshFiles,
     sendMessage,
     streaming,
+    researchRun,
   } = useSessionDetail(sessionId, hasInitialMessage)
 
   const timeline = useMemo(() => eventsToTimeline(events), [events])
@@ -77,6 +79,12 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const prevToolCountRef = useRef(0)
 
   const hasPreview = previewFile !== null || previewTool !== null
+  const researchRunActive = Boolean(
+    researchRun?.run &&
+      !['completed', 'partial', 'failed', 'cancelled', 'interrupted'].includes(
+        researchRun.run.status,
+      ),
+  )
 
   /**
    * 将 previewTool 解析为 timeline 中最新版本的工具对象。
@@ -207,13 +215,18 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const handleStop = useCallback(async () => {
     if (!session) return
     try {
-      await sessionApi.stopSession(sessionId)
-      toast.success('任务已停止')
+      if (researchRunActive && researchRun?.run) {
+        await sessionApi.cancelRun(sessionId, researchRun.run.id)
+        toast.success('研究运行已取消')
+      } else {
+        await sessionApi.stopSession(sessionId)
+        toast.success('任务已停止')
+      }
       refresh()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '停止任务失败')
     }
-  }, [session, sessionId, refresh])
+  }, [session, sessionId, researchRun, researchRunActive, refresh])
 
   if (loading && !session) {
     return (
@@ -299,11 +312,19 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
             </div>
 
             <div className="flex-shrink-0 bg-[#f8f8f7] py-4">
-              <PlanPanel className="mb-2" steps={planSteps} />
+              {researchRun ? (
+                <ResearchRunPanel
+                  className="mb-2"
+                  view={researchRun}
+                  onToolClick={handleToolClick}
+                />
+              ) : (
+                <PlanPanel className="mb-2" steps={planSteps} />
+              )}
               <ChatInput
                 onSend={handleSend}
                 sessionId={sessionId}
-                isRunning={session?.status === 'running'}
+                isRunning={session?.status === 'running' || researchRunActive}
                 onStop={handleStop}
                 researchTeamEnabled={
                   capabilities.loading

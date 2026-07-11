@@ -48,8 +48,31 @@ function emptyUsage(): RunUsage {
   };
 }
 
-export function reduceResearchEvents(events: SSEEventData[]): ResearchRunView {
-  const view = emptyResearchRunView();
+function cloneResearchRunView(view: ResearchRunView): ResearchRunView {
+  return {
+    run: view.run
+      ? { ...view.run, usage: { ...view.run.usage } }
+      : null,
+    taskOrder: [...view.taskOrder],
+    tasks: Object.fromEntries(
+      Object.entries(view.tasks).map(([taskId, task]) => [
+        taskId,
+        { ...task, tools: [...task.tools] },
+      ]),
+    ),
+    sources: { ...view.sources },
+    review: view.review ? { ...view.review } : null,
+    usage: view.usage ? { ...view.usage } : null,
+  };
+}
+
+export function reduceResearchEvents(
+  events: SSEEventData[],
+  initialView?: ResearchRunView,
+): ResearchRunView {
+  const view = initialView
+    ? cloneResearchRunView(initialView)
+    : emptyResearchRunView();
   const ordered = events
     .map((event, arrival) => ({ event, arrival }))
     .sort((left, right) => {
@@ -67,6 +90,13 @@ export function reduceResearchEvents(events: SSEEventData[]): ResearchRunView {
       const runId = data.run_id ?? view.run?.id;
       const sessionId = data.session_id ?? view.run?.session_id;
       if (runId && sessionId) {
+        if (view.run && view.run.id !== runId) {
+          view.taskOrder = [];
+          view.tasks = {};
+          view.sources = {};
+          view.review = null;
+          view.usage = null;
+        }
         view.run = {
           id: runId,
           session_id: sessionId,
