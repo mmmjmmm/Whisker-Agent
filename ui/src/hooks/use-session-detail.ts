@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionApi } from "@/lib/api/session";
 import { normalizeEvent, normalizeEvents } from "@/lib/session-events";
-import type { SessionDetail, SSEEventData, SessionFile } from "@/lib/api/types";
+import type { AgentMode, SessionDetail, SSEEventData, SessionFile } from "@/lib/api/types";
 
 export type UseSessionDetailResult = {
   session: SessionDetail | null;
@@ -13,7 +13,11 @@ export type UseSessionDetailResult = {
   error: Error | null;
   refresh: () => Promise<void>;
   refreshFiles: () => Promise<void>;
-  sendMessage: (message: string, attachmentIds: string[]) => Promise<void>;
+  sendMessage: (
+    message: string,
+    attachmentIds: string[],
+    mode?: AgentMode,
+  ) => Promise<void>;
   streaming: boolean;
 };
 
@@ -261,7 +265,11 @@ export function useSessionDetail(
   }, []);
 
   const sendMessage = useCallback(
-    async (message: string, attachmentIds: string[]) => {
+    async (
+      message: string,
+      attachmentIds: string[],
+      mode: AgentMode = "react",
+    ) => {
       if (!sessionId) return;
       // 停掉空流
       stopEmptyStream();
@@ -296,7 +304,7 @@ export function useSessionDetail(
       // 真正发起聊天 SSE 请求，返回一个 cleanup 函数，就是 abort 这个连接的方法
       const messageStreamCleanup = sessionApi.chat(
         sessionId,
-        { message, attachments: attachmentIds },
+        { message, attachments: attachmentIds, mode, budget_profile: "default" },
         onEvent,
         (err) => {
           if (err.name === "AbortError") {

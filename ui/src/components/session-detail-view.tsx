@@ -15,16 +15,18 @@ import {
   eventsToTimeline,
   getLatestPlanFromEvents,
 } from '@/lib/session-events'
-import type { ToolEvent, FileInfo } from '@/lib/api/types'
+import type { AgentMode, ToolEvent, FileInfo } from '@/lib/api/types'
 import type { AttachmentFile, TimelineItem } from '@/lib/session-events'
 import { sessionApi } from '@/lib/api/session'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
+import { useAppCapabilities } from '@/hooks/use-app-capabilities'
 
 export interface SessionDetailViewProps {
   sessionId: string
   initialMessage?: string
   initialAttachments?: string[]
+  initialMode?: AgentMode
   hasInitialMessage?: boolean
 }
 
@@ -48,8 +50,9 @@ function findLatestTool(timeline: TimelineItem[]): ToolEvent | null {
   return null
 }
 
-export function SessionDetailView({ sessionId, initialMessage, initialAttachments, hasInitialMessage }: SessionDetailViewProps) {
+export function SessionDetailView({ sessionId, initialMessage, initialAttachments, initialMode = 'react', hasInitialMessage }: SessionDetailViewProps) {
   const router = useRouter()
+  const capabilities = useAppCapabilities()
   const {
     session,
     files,
@@ -128,7 +131,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
       !streaming
     ) {
       initialMessageSentRef.current = true
-      sendMessage(initialMessage, initialAttachments || [])
+      sendMessage(initialMessage, initialAttachments || [], initialMode)
         .then(() => {
           setTimeout(() => {
             router.replace(`/sessions/${sessionId}`)
@@ -138,13 +141,13 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
           toast.error(e instanceof Error ? e.message : '发送消息失败')
         })
     }
-  }, [initialMessage, initialAttachments, session, loading, streaming, sendMessage, sessionId, router])
+  }, [initialMessage, initialAttachments, initialMode, session, loading, streaming, sendMessage, sessionId, router])
 
   const handleSend = useCallback(
-    async (message: string, uploadedFiles: FileInfo[]) => {
+    async (message: string, uploadedFiles: FileInfo[], mode: AgentMode) => {
       try {
         const attachmentIds = uploadedFiles.map((f) => f.id)
-        await sendMessage(message, attachmentIds)
+        await sendMessage(message, attachmentIds, mode)
       } catch (e) {
         toast.error(e instanceof Error ? e.message : '发送失败，请重试')
         throw e
@@ -284,7 +287,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
                   />
                 ))}
 
-                {(session?.status === 'running' || (hasInitialMessage && !initialMessageSentRef.current)) && (
+                {(session?.status === 'running' || (hasInitialMessage && timeline.length === 0)) && (
                   <div className="flex items-center gap-2 text-sm text-gray-500 py-3">
                     <Loader2 className="size-4 animate-spin" />
                     <span>正在思考中...</span>
@@ -302,6 +305,12 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
                 sessionId={sessionId}
                 isRunning={session?.status === 'running'}
                 onStop={handleStop}
+                researchTeamEnabled={
+                  capabilities.loading
+                    ? undefined
+                    : capabilities.researchTeamEnabled
+                }
+                initialMode={initialMode}
               />
             </div>
           </div>
