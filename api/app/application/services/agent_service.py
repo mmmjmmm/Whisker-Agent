@@ -230,6 +230,7 @@ class AgentService:
                     session_id,
                     SessionStatus.RUNNING,
                 )
+            session.events.append(message_event)
             session.status = SessionStatus.RUNNING
 
             try:

@@ -11,7 +11,7 @@ from typing import List, Callable, Type
 from app.application.errors.exceptions import NotFoundError, ServerRequestsError
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.task import Task
-from app.domain.models.event import TaskGraphEvent, TeamTaskEvent
+from app.domain.models.event import ErrorEvent, TaskGraphEvent, TeamTaskEvent
 from app.domain.models.file import File
 from app.domain.models.session import Session, SessionStatus
 from app.domain.models.team import (
@@ -100,6 +100,17 @@ class SessionService:
 
         graph = session.get_latest_task_graph()
         if graph is None:
+            interrupted = ErrorEvent(
+                error="Team 运行因进程中断而终止: process_interrupted"
+            )
+            async with self._uow:
+                await self._uow.session.add_event(session.id, interrupted)
+                await self._uow.session.update_status(
+                    session.id,
+                    SessionStatus.COMPLETED,
+                )
+            session.events.append(interrupted)
+            session.status = SessionStatus.COMPLETED
             return session
 
         terminal_graph_statuses = {

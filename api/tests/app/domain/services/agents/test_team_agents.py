@@ -135,6 +135,19 @@ class ObservedSearchTool(BaseTool):
         return ToolResult(data={"url": "https://observed.example/item"})
 
 
+class ArgumentOnlySearchTool(BaseTool):
+    name = "search"
+
+    @tool(
+        name="search_web",
+        description="search",
+        parameters={"query": {"type": "string"}},
+        required=["query"],
+    )
+    async def search_web(self, query: str):
+        return ToolResult(data={"count": 0})
+
+
 def agent_kwargs(llm, tools):
     uow = FakeUow()
     return {
@@ -310,6 +323,78 @@ def test_worker_rejects_self_reported_artifact_without_tool_evidence():
             pass
 
         with pytest.raises(ValueError, match="unobserved artifact"):
+            await worker.execute(
+                goal=graph.goal,
+                dependency_results={},
+                attachments=[],
+                emit=emit,
+            )
+
+    asyncio.run(scenario())
+
+
+def test_worker_does_not_treat_tool_argument_url_as_source_evidence():
+    async def scenario():
+        planned = PlannedTaskGraph(
+            title="search",
+            goal="search",
+            tasks=[
+                PlannedTask(
+                    id="search",
+                    description="search",
+                    capability="search",
+                    success_criteria="done",
+                )
+            ],
+        )
+        graph = build_task_graph(planned, max_tasks=5)
+        claimed_url = "https://argument-only.example/item"
+        worker_llm = QueueLLM(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call-argument-url",
+                        "function": {
+                            "name": "search_web",
+                            "arguments": json.dumps({"query": claimed_url}),
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": json.dumps(
+                    {
+                        "success": True,
+                        "summary": "claimed argument as evidence",
+                        "sources": [
+                            {"title": "Claimed", "url": claimed_url}
+                        ],
+                        "artifacts": [],
+                        "notes": [],
+                    }
+                ),
+            },
+        )
+        worker_kwargs, _ = agent_kwargs(
+            worker_llm,
+            [ArgumentOnlySearchTool()],
+        )
+        worker = TaskWorker(
+            **worker_kwargs,
+            allowed_tool_names={"search_web"},
+            graph_id=graph.id,
+            task=graph.tasks[0],
+            agent_id="worker-1",
+            attempt=1,
+        )
+
+        async def emit(event, wait_for_publish=True):
+            pass
+
+        with pytest.raises(ValueError, match="unobserved source"):
             await worker.execute(
                 goal=graph.goal,
                 dependency_results={},

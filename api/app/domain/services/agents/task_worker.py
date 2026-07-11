@@ -14,7 +14,7 @@ from app.domain.models.event import (
     ToolEvent,
     ToolEventStatus,
 )
-from app.domain.models.team import TeamTask, WorkerResult
+from app.domain.models.team import TeamCapability, TeamTask, WorkerResult
 from app.domain.services.agents.base import BaseAgent
 from app.domain.services.prompts.team import WORKER_SYSTEM_PROMPT
 
@@ -46,6 +46,46 @@ def collect_urls(value: Any) -> set[str]:
         return set().union(*(collect_urls(item) for item in value)) if value else set()
     if hasattr(value, "model_dump"):
         return collect_urls(value.model_dump(mode="json"))
+    return set()
+
+
+def collect_urls_from_named_fields(
+    value: Any,
+    field_names: set[str] | frozenset[str],
+) -> set[str]:
+    if value is None:
+        return set()
+    if hasattr(value, "model_dump"):
+        value = value.model_dump(mode="json")
+    if isinstance(value, dict):
+        urls: set[str] = set()
+        for key, item in value.items():
+            if key in field_names:
+                urls.update(collect_urls(item))
+            else:
+                urls.update(collect_urls_from_named_fields(item, field_names))
+        return urls
+    if isinstance(value, (list, tuple, set)):
+        return set().union(
+            *(collect_urls_from_named_fields(item, field_names) for item in value)
+        ) if value else set()
+    return set()
+
+
+def collect_source_urls(
+    event: ToolEvent,
+    capability: TeamCapability,
+) -> set[str]:
+    """只把结构化搜索结果或浏览器确认的当前 URL 作为来源证据。"""
+    if event.function_result is None or not event.function_result.success:
+        return set()
+    if capability is TeamCapability.SEARCH and event.function_name == "search_web":
+        return collect_urls(event.function_result.data)
+    if capability is TeamCapability.BROWSER and event.tool_name == "browser":
+        return collect_urls_from_named_fields(
+            event.function_result.data,
+            frozenset({"url", "current_url", "final_url"}),
+        )
     return set()
 
 
@@ -179,9 +219,9 @@ class TaskWorker(BaseAgent):
                     and event.function_result is not None
                     and event.function_result.success
                 ):
-                    observed_urls.update(collect_urls(event.function_args))
-                    observed_urls.update(collect_urls(event.function_result))
-                    observed_urls.update(collect_urls(event.tool_content))
+                    observed_urls.update(
+                        collect_source_urls(event, self._task.capability)
+                    )
                     observed_artifacts.update(collect_observed_artifacts(event))
             elif isinstance(event, ErrorEvent):
                 raise RuntimeError(event.error)

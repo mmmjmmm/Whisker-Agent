@@ -290,6 +290,39 @@ def test_team_flow_replans_after_structured_schema_validation_error():
     asyncio.run(scenario())
 
 
+class ParsingFailurePlanner:
+    def __init__(self):
+        self.validation_errors = []
+
+    async def create_graph(self, message, validation_error=None):
+        self.validation_errors.append(validation_error)
+        if len(self.validation_errors) == 1:
+            raise ValueError("invalid planner json")
+        return valid_plan()
+
+
+def test_team_flow_replans_after_json_parser_value_error():
+    async def scenario():
+        planner = ParsingFailurePlanner()
+        flow = TeamFlow(
+            uow_factory=FakeUow,
+            session_id="session-1",
+            team_max_tasks=5,
+            planner=planner,
+            orchestrator=CompletingOrchestrator(),
+            synthesizer_factory=FakeSynthesizer,
+        )
+
+        events = [
+            event async for event in flow.invoke(Message(message="research"))
+        ]
+
+        assert planner.validation_errors == [None, "invalid planner json"]
+        assert events[-1].type == "done"
+
+    asyncio.run(scenario())
+
+
 class BlockingOrchestrator:
     def __init__(self):
         self.started = asyncio.Event()

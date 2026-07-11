@@ -38,7 +38,6 @@ class InMemorySessionRepository:
 
     async def add_event(self, session_id, event):
         self.persisted_events.append(event)
-        self.value.events.append(event)
 
     async def update_status(self, session_id, status):
         self.value.status = status
@@ -187,6 +186,52 @@ def test_terminal_graph_only_repairs_session_status_after_restart():
         assert session.status is SessionStatus.COMPLETED
         assert graph.status is TaskGraphStatus.COMPLETED
         assert uow.session.persisted_events == []
+
+    asyncio.run(scenario())
+
+
+def test_latest_team_graph_resets_at_new_user_turn():
+    session = running_team_session(TaskGraphStatus.COMPLETED)
+    session.events.append(
+        MessageEvent(
+            role="user",
+            message="new run",
+            agent_mode=AgentMode.TEAM,
+        )
+    )
+
+    assert session.get_latest_task_graph() is None
+
+
+def test_interrupted_team_without_current_graph_converges_to_error():
+    async def scenario():
+        session = running_team_session(TaskGraphStatus.COMPLETED)
+        session.events.append(
+            MessageEvent(
+                role="user",
+                message="new run",
+                agent_mode=AgentMode.TEAM,
+            )
+        )
+        session.status = SessionStatus.RUNNING
+        session.task_id = "missing-task"
+        uow = FakeUow(session)
+        service = SessionService(
+            uow_factory=lambda: uow,
+            sandbox_cls=object,
+            task_cls=MissingTaskRegistry,
+        )
+
+        repaired = await service.get_session("session")
+
+        assert repaired.status is SessionStatus.COMPLETED
+        assert [event.type for event in uow.session.persisted_events] == [
+            "error"
+        ]
+        assert (
+            uow.session.persisted_events[0].error
+            == "Team 运行因进程中断而终止: process_interrupted"
+        )
 
     asyncio.run(scenario())
 

@@ -2,8 +2,6 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from pydantic import ValidationError as PydanticValidationError
-
 from app.domain.models.event import (
     BaseEvent,
     DoneEvent,
@@ -27,7 +25,7 @@ from app.domain.services.agents.task_worker import TaskWorker
 from app.domain.services.agents.team_planner import TeamPlannerAgent
 from app.domain.services.agents.team_synthesizer import TeamSynthesizerAgent
 from app.domain.services.flows.base import BaseFlow
-from app.domain.services.team.graph import TaskGraphError, build_task_graph
+from app.domain.services.team.graph import build_task_graph
 from app.domain.services.team.orchestrator import TeamOrchestrator
 from app.domain.services.team.policy import ToolPolicy
 from app.domain.services.tools.browser import BrowserTool
@@ -132,7 +130,7 @@ class TeamFlow(BaseFlow):
                     self._team_max_tasks,
                 )
                 break
-            except (TaskGraphError, PydanticValidationError) as exc:
+            except ValueError as exc:
                 validation_error = str(exc)
             except Exception as exc:
                 self._done = True

@@ -310,7 +310,10 @@ class PlaywrightBrowser(BrowserProtocol):
             await self.page.goto(url)
             return ToolResult(
                 success=True,
-                data={"interactive_elements": await self._extract_interactive_elements()}
+                data={
+                    "url": self.page.url,
+                    "interactive_elements": await self._extract_interactive_elements(),
+                }
             )
         except Exception as e:
             # 返回错误的工具结果
@@ -331,6 +334,7 @@ class PlaywrightBrowser(BrowserProtocol):
         return ToolResult(
             success=True,
             data={
+                "url": self.page.url,
                 "content": await self._extract_content(),
                 "interactive_elements": interactive_elements,
             }

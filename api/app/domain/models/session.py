@@ -64,7 +64,9 @@ class Session(BaseModel):
         """从 Graph/Task 事件历史归并出最新 Team DAG 快照。"""
         graph: Optional[TaskGraph] = None
         for event in self.events:
-            if isinstance(event, TaskGraphEvent):
+            if isinstance(event, MessageEvent) and event.role == "user":
+                graph = None
+            elif isinstance(event, TaskGraphEvent):
                 graph = event.graph.model_copy(deep=True)
             elif (
                 isinstance(event, TeamTaskEvent)
