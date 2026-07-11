@@ -36,3 +36,7 @@ class BaseFlow(ABC):
     def done(self) -> bool:
         """只读属性，用于返回流是否结束"""
         ...
+
+    async def cancel_events(self) -> list[BaseEvent]:
+        """返回取消时需要由 Runner 持久化的事件，旧 Flow 默认无事件。"""
+        return []
