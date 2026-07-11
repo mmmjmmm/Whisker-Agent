@@ -4,14 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { sessionApi } from "@/lib/api/session";
 import { normalizeEvent, normalizeEvents } from "@/lib/session-events";
 import {
+  mergeResearchSnapshot,
   reduceResearchEvents,
   type ResearchRunView,
 } from "@/lib/research-events";
 import type {
   AgentMode,
-  AgentRun,
-  ResearchSource,
-  ResearchTask,
   RunStatus,
   SessionDetail,
   SSEEventData,
@@ -32,29 +30,6 @@ function latestRunId(events: SSEEventData[]): string | null {
     if (typeof runId === "string" && runId) return runId;
   }
   return null;
-}
-
-function createResearchSnapshot(
-  projection: ResearchRunView,
-  run: AgentRun,
-  tasks: ResearchTask[],
-  sources: ResearchSource[],
-): ResearchRunView {
-  return {
-    ...projection,
-    run,
-    taskOrder: tasks.map((task) => task.id),
-    tasks: Object.fromEntries(
-      tasks.map((task) => [
-        task.id,
-        {
-          ...task,
-          tools: projection.tasks[task.id]?.tools ?? [],
-        },
-      ]),
-    ),
-    sources: Object.fromEntries(sources.map((source) => [source.id, source])),
-  };
 }
 
 export type UseSessionDetailResult = {
@@ -281,7 +256,7 @@ export function useSessionDetail(
             sessionApi.getRunSources(sessionId, runId),
           ]);
           setResearchSnapshot(
-            createResearchSnapshot(projection, run, tasks, sources),
+            mergeResearchSnapshot(projection, run, tasks, sources),
           );
           setSession((current) =>
             current

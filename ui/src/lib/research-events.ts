@@ -31,6 +31,29 @@ export function emptyResearchRunView(): ResearchRunView {
   };
 }
 
+export function mergeResearchSnapshot(
+  projection: ResearchRunView,
+  run: AgentRun,
+  tasks: ResearchTask[],
+  sources: ResearchSource[],
+): ResearchRunView {
+  return {
+    ...projection,
+    run,
+    taskOrder: tasks.map((task) => task.id),
+    tasks: Object.fromEntries(
+      tasks.map((task) => [
+        task.id,
+        {
+          ...task,
+          tools: projection.tasks[task.id]?.tools ?? [],
+        },
+      ]),
+    ),
+    sources: Object.fromEntries(sources.map((source) => [source.id, source])),
+  };
+}
+
 function eventSequence(event: SSEEventData): number | null {
   const sequence = (event.data as { sequence_no?: unknown }).sequence_no;
   return typeof sequence === "number" ? sequence : null;
