@@ -28,6 +28,7 @@ class FakeTask:
         self.output_stream = FakeQueue()
         self.done = False
         self.invoke_count = 0
+        self.cancel_count = 0
         self.task_runner = task_runner
         type(self).registry[self.id] = self
 
@@ -35,6 +36,7 @@ class FakeTask:
         self.invoke_count += 1
 
     def cancel(self) -> bool:
+        self.cancel_count += 1
         self.done = True
         return True
 
@@ -79,6 +81,9 @@ class FakeSessionRepository:
     async def add_event(self, session_id, event) -> None:
         self.events.append((session_id, event))
 
+    async def update_status(self, session_id, status) -> None:
+        self.sessions[session_id].status = status
+
 
 class FakeRunRepository:
     terminal = {
@@ -91,9 +96,22 @@ class FakeRunRepository:
 
     def __init__(self) -> None:
         self.runs = {}
+        self.tasks = {}
 
     async def add(self, run) -> None:
         self.runs[run.id] = run
+
+    async def get(self, run_id):
+        return self.runs.get(run_id)
+
+    async def update(self, run) -> None:
+        self.runs[run.id] = run
+
+    async def list_tasks(self, run_id):
+        return [task for task in self.tasks.values() if task.run_id == run_id]
+
+    async def update_task(self, task) -> None:
+        self.tasks[task.id] = task
 
     async def get_active_by_session(self, session_id):
         return next((
@@ -107,11 +125,20 @@ class FakeFileRepository:
         return None
 
 
+class FakeResearchRepository:
+    def __init__(self) -> None:
+        self.sources = []
+
+    async def list_sources(self, run_id):
+        return [source for source in self.sources if source.run_id == run_id]
+
+
 class FakeUow:
-    def __init__(self, session, agent_run, file) -> None:
+    def __init__(self, session, agent_run, file, research) -> None:
         self.session = session
         self.agent_run = agent_run
         self.file = file
+        self.research = research
 
     async def __aenter__(self):
         return self
@@ -128,7 +155,8 @@ def build_service(*, enabled: bool = True):
     sessions = FakeSessionRepository(session)
     runs = FakeRunRepository()
     files = FakeFileRepository()
-    uow_factory = lambda: FakeUow(sessions, runs, files)
+    research = FakeResearchRepository()
+    uow_factory = lambda: FakeUow(sessions, runs, files, research)
     service = AgentService(
         uow_factory=uow_factory,
         llm=object(),
@@ -143,6 +171,7 @@ def build_service(*, enabled: bool = True):
         research_team_enabled=enabled,
         research_flow_factory=lambda _session_id: object(),
     )
+    service._test_research_repository = research
     return service, session, sessions, runs
 
 

@@ -21,6 +21,12 @@ from app.application.services.agent_service import AgentService
 from app.application.services.session_service import SessionService
 from app.interfaces.schemas import Response
 from app.interfaces.schemas.event import EventMapper
+from app.interfaces.schemas.research import (
+    AgentRunResponse,
+    AgentTaskResponse,
+    CancelRunResponse,
+    ResearchSourceResponse,
+)
 from app.interfaces.schemas.session import (
     CreateSessionResponse,
     ListSessionResponse,
@@ -184,6 +190,69 @@ async def chat(
                 )
 
     return EventSourceResponse(event_generator())
+
+
+@router.get(
+    path="/{session_id}/runs/{run_id}",
+    response_model=Response[AgentRunResponse],
+    summary="获取研究运行详情",
+)
+async def get_research_run(
+        session_id: str,
+        run_id: str,
+        agent_service: AgentService = Depends(get_agent_service),
+) -> Response[AgentRunResponse]:
+    run = await agent_service.get_run(session_id, run_id)
+    return Response.success(data=AgentRunResponse.model_validate(run))
+
+
+@router.get(
+    path="/{session_id}/runs/{run_id}/tasks",
+    response_model=Response[list[AgentTaskResponse]],
+    summary="获取研究运行任务",
+)
+async def list_research_run_tasks(
+        session_id: str,
+        run_id: str,
+        agent_service: AgentService = Depends(get_agent_service),
+) -> Response[list[AgentTaskResponse]]:
+    tasks = await agent_service.list_run_tasks(session_id, run_id)
+    return Response.success(data=[
+        AgentTaskResponse.model_validate(task) for task in tasks
+    ])
+
+
+@router.get(
+    path="/{session_id}/runs/{run_id}/sources",
+    response_model=Response[list[ResearchSourceResponse]],
+    summary="获取研究运行来源",
+)
+async def list_research_run_sources(
+        session_id: str,
+        run_id: str,
+        agent_service: AgentService = Depends(get_agent_service),
+) -> Response[list[ResearchSourceResponse]]:
+    sources = await agent_service.list_run_sources(session_id, run_id)
+    return Response.success(data=[
+        ResearchSourceResponse.model_validate(source) for source in sources
+    ])
+
+
+@router.post(
+    path="/{session_id}/runs/{run_id}/cancel",
+    response_model=Response[CancelRunResponse],
+    summary="取消研究运行",
+)
+async def cancel_research_run(
+        session_id: str,
+        run_id: str,
+        agent_service: AgentService = Depends(get_agent_service),
+) -> Response[CancelRunResponse]:
+    run = await agent_service.cancel_run(session_id, run_id)
+    return Response.success(data=CancelRunResponse(
+        run_id=run.id,
+        status=run.status,
+    ))
 
 
 @router.get(

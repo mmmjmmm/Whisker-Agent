@@ -15,6 +15,7 @@ from typing import AsyncGenerator, Optional, List, Type, Callable
 from pydantic import TypeAdapter
 
 from app.application.errors.exceptions import (
+    NotFoundError,
     ResearchTeamDisabledError,
     RunAlreadyActiveError,
 )
@@ -25,15 +26,39 @@ from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.external.task import Task
 from app.domain.models.app_config import AgentConfig, MCPConfig, A2AConfig
-from app.domain.models.agent_run import AgentMode, AgentRun, RunStatus
+from app.domain.models.agent_run import (
+    AgentMode,
+    AgentRun,
+    AgentTask,
+    RunStatus,
+    TaskStatus,
+    utc_now,
+)
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent, Event, DoneEvent, WaitEvent
 from app.domain.models.run_command import StartRunCommand
+from app.domain.models.research import ResearchSource
 from app.domain.models.session import Session, SessionStatus
 from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.agent_task_runner import AgentTaskRunner
 from app.domain.services.flows.base import BaseFlow
 
 logger = logging.getLogger(__name__)
+
+TERMINAL_RUN_STATUSES = {
+    RunStatus.COMPLETED,
+    RunStatus.PARTIAL,
+    RunStatus.FAILED,
+    RunStatus.CANCELLED,
+    RunStatus.INTERRUPTED,
+}
+TERMINAL_TASK_STATUSES = {
+    TaskStatus.COMPLETED,
+    TaskStatus.FAILED,
+    TaskStatus.SKIPPED,
+    TaskStatus.CANCELLED,
+    TaskStatus.TIMED_OUT,
+    TaskStatus.INTERRUPTED,
+}
 
 
 @dataclass
@@ -346,6 +371,73 @@ class AgentService:
                 )
             yield event
 
+    async def get_run(self, session_id: str, run_id: str) -> AgentRun:
+        async with self._uow_factory() as uow:
+            run = await uow.agent_run.get(run_id)
+        if run is None or run.session_id != session_id:
+            raise NotFoundError("研究运行不存在")
+        return run
+
+    async def list_run_tasks(
+            self,
+            session_id: str,
+            run_id: str,
+    ) -> list[AgentTask]:
+        await self.get_run(session_id, run_id)
+        async with self._uow_factory() as uow:
+            return await uow.agent_run.list_tasks(run_id)
+
+    async def list_run_sources(
+            self,
+            session_id: str,
+            run_id: str,
+    ) -> list[ResearchSource]:
+        await self.get_run(session_id, run_id)
+        async with self._uow_factory() as uow:
+            return await uow.research.list_sources(run_id)
+
+    async def cancel_run(self, session_id: str, run_id: str) -> AgentRun:
+        process_task = None
+        async with self._uow_factory() as uow:
+            run = await uow.agent_run.get(run_id)
+            if run is None or run.session_id != session_id:
+                raise NotFoundError("研究运行不存在")
+            if run.status in TERMINAL_RUN_STATUSES:
+                return run
+
+            now = utc_now()
+            run.status = RunStatus.CANCELLED
+            run.error = {
+                "type": "RunCancelled",
+                "message": "run cancelled by user",
+            }
+            run.finished_at = now
+            run.updated_at = now
+            await uow.agent_run.update(run)
+
+            for task in await uow.agent_run.list_tasks(run_id):
+                if task.status in TERMINAL_TASK_STATUSES:
+                    continue
+                task.status = TaskStatus.CANCELLED
+                task.error = {
+                    "type": "RunCancelled",
+                    "message": "run cancelled by user",
+                }
+                task.updated_at = now
+                await uow.agent_run.update_task(task)
+
+            session = await uow.session.get_by_id(session_id)
+            if session is not None:
+                process_task = await self._get_task(session)
+                await uow.session.update_status(
+                    session_id,
+                    SessionStatus.COMPLETED,
+                )
+
+        if process_task is not None:
+            process_task.cancel()
+        return run
+
     async def stop_session(self, session_id: str) -> None:
         """根据传递的会话id停止指定会话"""
         # 1.查找会话是否存在
@@ -354,6 +446,12 @@ class AgentService:
         if not session:
             logger.error(f"尝试停止不存在的会话[{session_id}]")
             raise RuntimeError("任务会话不存在, 请核实后重试")
+
+        async with self._uow_factory() as uow:
+            active_run = await uow.agent_run.get_active_by_session(session_id)
+        if active_run is not None:
+            await self.cancel_run(session_id, active_run.id)
+            return
 
         # 2.根据会话获取任务信息
         task = await self._get_task(session)
