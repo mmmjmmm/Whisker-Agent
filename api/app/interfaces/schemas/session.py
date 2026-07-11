@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.domain.models.file import File
 from app.domain.models.session import SessionStatus
+from app.domain.models.team import AgentMode
 from app.interfaces.schemas.event import AgentSSEEvent
 
 
@@ -41,6 +42,7 @@ class ChatRequest(BaseModel):
     attachments: Optional[List[str]] = Field(default_factory=list)  # 附件列表(传递的是文件id列表)
     event_id: Optional[str] = None  # 最新事件id
     timestamp: Optional[int] = None  # 当前时间戳
+    mode: AgentMode = AgentMode.REACT
 
 
 class GetSessionResponse(BaseModel):

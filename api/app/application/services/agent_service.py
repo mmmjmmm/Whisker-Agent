@@ -21,8 +21,10 @@ from app.domain.external.task import Task
 from app.domain.models.app_config import AgentConfig, MCPConfig, A2AConfig
 from app.domain.models.event import BaseEvent, ErrorEvent, MessageEvent, Event, DoneEvent, WaitEvent
 from app.domain.models.session import Session, SessionStatus
+from app.domain.models.team import AgentMode
 from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.application.errors.exceptions import ConflictError
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +128,24 @@ class AgentService:
         except Exception as e:
             logger.warning(f"会话[{session_id}]后台更新未读消息计数失败: {e}")
 
+    async def validate_chat_request(
+            self,
+            session_id: str,
+            mode: AgentMode,
+            has_message: bool,
+    ) -> None:
+        """在创建 SSE 响应前拒绝运行中 Team 的追加消息。"""
+        if not has_message:
+            return
+        async with self._uow:
+            session = await self._uow.session.get_by_id(session_id)
+        if (
+                session
+                and session.status is SessionStatus.RUNNING
+                and session.get_latest_agent_mode() is AgentMode.TEAM
+        ):
+            raise ConflictError("Team 运行中不接受新消息；请先停止当前任务")
+
     async def chat(
             self,
             session_id: str,
@@ -133,6 +153,7 @@ class AgentService:
             attachments: Optional[List[str]] = None,
             latest_event_id: Optional[str] = None,
             timestamp: Optional[datetime] = None,
+            mode: AgentMode = AgentMode.REACT,
     ) -> AsyncGenerator[BaseEvent, None]:
         """根据传递的信息调用Agent服务发起对话请求"""
         try:
@@ -166,13 +187,17 @@ class AgentService:
 
                 # bugfix:从文件数据库中查询数据并更新attachments实际内容, 并返回人类消息事件
                 async with self._uow:
-                    db_attachments = [await self._uow.file.get_by_id(id) for id in attachments]
+                    db_attachments = [
+                        await self._uow.file.get_by_id(file_id)
+                        for file_id in (attachments or [])
+                    ]
 
                 # 7.创建一个人类消息事件
                 message_event = MessageEvent(
                     role="user",
                     message=message,
                     attachments=[attachment for attachment in db_attachments if attachment is not None],
+                    agent_mode=mode,
                     # attachments=[File(id=attachment) for attachment in attachments] if attachments else [],
                 )
 

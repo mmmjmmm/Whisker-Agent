@@ -10,8 +10,15 @@ from typing import List, Callable, Type
 
 from app.application.errors.exceptions import NotFoundError, ServerRequestsError
 from app.domain.external.sandbox import Sandbox
+from app.domain.external.task import Task
+from app.domain.models.event import TaskGraphEvent, TeamTaskEvent
 from app.domain.models.file import File
-from app.domain.models.session import Session
+from app.domain.models.session import Session, SessionStatus
+from app.domain.models.team import (
+    AgentMode,
+    TaskGraphStatus,
+    TeamTaskStatus,
+)
 from app.domain.repositories.uow import IUnitOfWork
 from app.interfaces.schemas.session import FileReadResponse, ShellReadResponse
 
@@ -25,11 +32,13 @@ class SessionService:
             self,
             uow_factory: Callable[[], IUnitOfWork],
             sandbox_cls: Type[Sandbox],
+            task_cls: Type[Task] | None = None,
     ) -> None:
         """构造函数，完成会话服务初始化"""
         self._uow_factory = uow_factory
         self._uow = uow_factory()
         self._sandbox_cls = sandbox_cls
+        self._task_cls = task_cls
 
     async def create_session(self) -> Session:
         """创建一个空白的新任务会话"""
@@ -43,7 +52,11 @@ class SessionService:
     async def get_all_sessions(self) -> List[Session]:
         """获取项目所有任务会话列表"""
         async with self._uow:
-            return await self._uow.session.get_all()
+            sessions = await self._uow.session.get_all()
+        return [
+            await self._reconcile_interrupted_team(session)
+            for session in sessions
+        ]
 
     async def clear_unread_message_count(self, session_id: str) -> None:
         """清空指定会话未读消息数"""
@@ -69,7 +82,78 @@ class SessionService:
     async def get_session(self, session_id: str) -> Session:
         """获取指定会话详情信息"""
         async with self._uow:
-            return await self._uow.session.get_by_id(session_id)
+            session = await self._uow.session.get_by_id(session_id)
+        if not session:
+            return session
+        return await self._reconcile_interrupted_team(session)
+
+    async def _reconcile_interrupted_team(self, session: Session) -> Session:
+        """把进程重启后失去本地 Task 的 Team 会话收敛为可解释终态。"""
+        if session.status is not SessionStatus.RUNNING:
+            return session
+        if session.get_latest_agent_mode() is not AgentMode.TEAM:
+            return session
+        if self._task_cls is None:
+            return session
+        if session.task_id and self._task_cls.get(session.task_id):
+            return session
+
+        graph = session.get_latest_task_graph()
+        if graph is None:
+            return session
+
+        terminal_graph_statuses = {
+            TaskGraphStatus.COMPLETED,
+            TaskGraphStatus.PARTIAL,
+            TaskGraphStatus.FAILED,
+            TaskGraphStatus.CANCELLED,
+        }
+        if graph.status in terminal_graph_statuses:
+            async with self._uow:
+                await self._uow.session.update_status(
+                    session.id,
+                    SessionStatus.COMPLETED,
+                )
+            session.status = SessionStatus.COMPLETED
+            return session
+
+        terminal_events = []
+        for task in graph.tasks:
+            if task.status in {
+                TeamTaskStatus.RUNNING,
+                TeamTaskStatus.RETRYING,
+            }:
+                task.status = TeamTaskStatus.FAILED
+                task.error = "process_interrupted"
+            elif task.status is TeamTaskStatus.PENDING:
+                task.status = TeamTaskStatus.SKIPPED
+                task.error = "process_interrupted"
+            else:
+                continue
+            terminal_events.append(
+                TeamTaskEvent(
+                    graph_id=graph.id,
+                    task=task.model_copy(deep=True),
+                    agent_id=task.assigned_agent_id,
+                    attempt=task.attempt_count,
+                )
+            )
+
+        graph.status = TaskGraphStatus.FAILED
+        graph.error = "process_interrupted"
+        terminal_events.append(
+            TaskGraphEvent(graph=graph.model_copy(deep=True))
+        )
+        async with self._uow:
+            for event in terminal_events:
+                await self._uow.session.add_event(session.id, event)
+            await self._uow.session.update_status(
+                session.id,
+                SessionStatus.COMPLETED,
+            )
+        session.events.extend(terminal_events)
+        session.status = SessionStatus.COMPLETED
+        return session
 
     async def get_session_files(self, session_id: str) -> List[File]:
         """根据传递的会话id获取指定会话的文件列表信息"""

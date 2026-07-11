@@ -12,10 +12,11 @@ from typing import Optional, List, Dict
 
 from pydantic import BaseModel, Field
 
-from .event import Event, PlanEvent
+from .event import Event, MessageEvent, PlanEvent, TaskGraphEvent, TeamTaskEvent
 from .file import File
 from .memory import Memory
 from .plan import Plan
+from .team import AgentMode, TaskGraph
 
 
 class SessionStatus(str, Enum):
@@ -51,3 +52,27 @@ class Session(BaseModel):
                 return event.plan
 
         return None
+
+    def get_latest_agent_mode(self) -> AgentMode:
+        """返回最近一轮用户消息选择的 Agent mode。"""
+        for event in reversed(self.events):
+            if isinstance(event, MessageEvent) and event.role == "user":
+                return event.agent_mode or AgentMode.REACT
+        return AgentMode.REACT
+
+    def get_latest_task_graph(self) -> Optional[TaskGraph]:
+        """从 Graph/Task 事件历史归并出最新 Team DAG 快照。"""
+        graph: Optional[TaskGraph] = None
+        for event in self.events:
+            if isinstance(event, TaskGraphEvent):
+                graph = event.graph.model_copy(deep=True)
+            elif (
+                isinstance(event, TeamTaskEvent)
+                and graph is not None
+                and event.graph_id == graph.id
+            ):
+                for index, task in enumerate(graph.tasks):
+                    if task.id == event.task.id:
+                        graph.tasks[index] = event.task.model_copy(deep=True)
+                        break
+        return graph
