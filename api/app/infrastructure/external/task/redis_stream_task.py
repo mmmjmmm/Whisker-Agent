@@ -77,12 +77,9 @@ class RedisStreamTask(Task):
             # 1.取消任务
             self._execution_task.cancel()
             logger.info(f"任务[{self._id}]已取消")
-
-            # 2.清除注册的当前任务
-            self._cleanup_registry()
             return True
 
-        # 3.否则代表任务已结束，无需重复取消
+        # 2.已结束任务可直接清理；运行中任务由 _execute_task.finally 清理
         self._cleanup_registry()
         return True
 
@@ -121,9 +118,8 @@ class RedisStreamTask(Task):
 
     @classmethod
     async def destroy(cls) -> None:
-        for task_id in RedisStreamTask._task_registry:
-            # 1.获取对应的任务
-            task = RedisStreamTask._task_registry[task_id]
+        for task in list(RedisStreamTask._task_registry.values()):
+            # 1.取消快照中的任务，避免完成回调修改迭代中的 registry
             task.cancel()
 
             # 2.检测任务是否有任务运行器
