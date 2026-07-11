@@ -26,6 +26,11 @@ class AgentConfig(BaseModel):
     max_iterations: int = Field(default=100, gt=0, lt=1000)  # Agent最大迭代次数
     max_retries: int = Field(default=3, gt=1, lt=10)  # 最大重试次数
     max_search_results: int = Field(default=10, gt=1, lt=30)  # 最大搜索结果条数
+    team_max_tasks: int = Field(default=5, ge=1, le=20)
+    team_max_workers: int = Field(default=3, ge=1, le=8)
+    team_max_task_retries: int = Field(default=1, ge=0, le=3)
+    team_task_timeout_seconds: int = Field(default=300, ge=30, le=1800)
+    team_max_worker_iterations: int = Field(default=20, ge=1, le=100)
 
 
 class MCPTransport(str, Enum):
