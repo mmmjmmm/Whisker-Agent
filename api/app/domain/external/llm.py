@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/17 17:14
-@Author  : thezehui@gmail.com
-@File    : llm.py
-"""
 from typing import Protocol, List, Dict, Any
 
 

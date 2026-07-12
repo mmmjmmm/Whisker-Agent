@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/21 10:26
-@Author  : thezehui@gmail.com
-@File    : react.py
-"""
 import logging
 from typing import AsyncGenerator
 

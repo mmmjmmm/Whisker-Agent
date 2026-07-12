@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/14 10:11
-@Author  : thezehui@gmail.com
-@File    : session.py
-"""
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any

@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/24 15:19
-@Author  : thezehui@gmail.com
-@File    : bing_search.py
-"""
 import logging
 import re
 import time

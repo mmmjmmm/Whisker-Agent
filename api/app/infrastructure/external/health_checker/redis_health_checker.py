@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/20 1:30
-@Author  : thezehui@gmail.com
-@File    : redis_health_checker.py
-"""
 import logging
 
 from app.domain.external.health_checker import HealthChecker

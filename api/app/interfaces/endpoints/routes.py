@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/17 10:52
-@Author  : thezehui@gmail.com
-@File    : routes.py
-"""
 from fastapi import APIRouter
 
 from . import (

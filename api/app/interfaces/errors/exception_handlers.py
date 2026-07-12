@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/17 17:36
-@Author  : thezehui@gmail.com
-@File    : exception_handlers.py
-"""
 import logging
 
 from fastapi import FastAPI, Request

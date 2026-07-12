@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/10 17:18
-@Author  : thezehui@gmail.com
-@File    : shell.py
-"""
 import os
 
 from fastapi import APIRouter, Depends

@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/11 23:25
-@Author  : thezehui@gmail.com
-@File    : shell.py
-"""
 import asyncio
 import codecs
 import getpass

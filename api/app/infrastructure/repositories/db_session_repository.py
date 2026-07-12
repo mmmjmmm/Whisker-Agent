@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/14 9:28
-@Author  : thezehui@gmail.com
-@File    : db_session_repository.py
-"""
 from datetime import datetime
 from typing import List, Optional
 

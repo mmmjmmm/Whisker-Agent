@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/21 0:44
-@Author  : thezehui@gmail.com
-@File    : file_storage.py
-"""
 from typing import Protocol, Tuple, BinaryIO
 
 from fastapi import UploadFile

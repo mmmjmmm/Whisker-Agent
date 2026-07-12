@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/17 17:21
-@Author  : thezehui@gmail.com
-@File    : openai_llm.py
-"""
 import logging
 from typing import List, Dict, Any
 

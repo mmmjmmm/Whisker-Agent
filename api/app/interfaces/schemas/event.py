@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/09 10:33
-@Author  : thezehui@gmail.com
-@File    : event.py
-"""
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, Any, Self, Type, Literal, List, Union, get_args

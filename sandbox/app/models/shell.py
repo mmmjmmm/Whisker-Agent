@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/11 23:30
-@Author  : thezehui@gmail.com
-@File    : shell.py
-"""
 import asyncio.subprocess
 from typing import Optional, List
 

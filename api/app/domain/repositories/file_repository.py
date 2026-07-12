@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/21 0:47
-@Author  : thezehui@gmail.com
-@File    : file_repository.py
-"""
 from typing import Protocol, Optional
 
 from app.domain.models.file import File

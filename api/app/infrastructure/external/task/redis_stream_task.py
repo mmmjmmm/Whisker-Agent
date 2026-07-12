@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/21 17:35
-@Author  : thezehui@gmail.com
-@File    : redis_stream_task.py
-"""
 import asyncio
 import logging
 import uuid

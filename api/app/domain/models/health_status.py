@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/20 1:08
-@Author  : thezehui@gmail.com
-@File    : health_status.py
-"""
 from pydantic import BaseModel, Field
 
 

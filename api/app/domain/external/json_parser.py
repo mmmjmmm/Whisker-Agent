@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/18 1:44
-@Author  : thezehui@gmail.com
-@File    : json_parser.py
-"""
 from typing import Protocol, Optional, Any, Union, Dict, List
 
 

@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/21 1:12
-@Author  : thezehui@gmail.com
-@File    : file_routes.py
-"""
 import logging
 import urllib.parse
 

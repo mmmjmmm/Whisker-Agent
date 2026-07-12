@@ -1,46 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/27 9:43
-@Author  : thezehui@gmail.com
-@File    : mcp.py
-"""
-import logging
-import os
-from contextlib import AsyncExitStack
-from typing import Optional, Dict, List, Any
-
-from mcp import ClientSession, Tool, StdioServerParameters, stdio_client
-from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
-
-from app.application.errors.exceptions import NotFoundError
-from app.domain.models.app_config import MCPConfig, MCPServerConfig, MCPTransport
-from app.domain.models.tool_result import ToolResult
-from .base import BaseTool
-
-"""
-MCP客户端管理器的开发思路:
-1.在Agent执行的过程中，有可能需要调用多次工具,
-  但是因为MCP工具的每次获取都需要调用客户端会话的list_tools()方法,
-  非常耗时, 所以需要我们缓存工具的参数信息, 只有在初始化的时候才调用一次,
-  并且在销毁MCP客户端管理器的时候一并清除;
-2.在前端UI交互中, 无论MCP服务是否启动, 都会显示工具列表信息,
-  但是在Agent执行的过程中, 我们只会传递已启动的MCP服务,
-  所以对于MCP客户端管理器来说, 可以根据接收的MCP配置的差异加载不同的服务器,
-  而不是仅从配置文件中读取数据;
-3.MCP客户端管理器会同时管理多个MCP服务, 有可能有stdio、sse、streamable_http等传输协议.
-  需要根据传输协议的不同来创建客户端会话(ClientSession), 同时缓存会话;
-4.另外有可能有一些环境变量是存储在我们整个系统中的, 在初始化MCP服务的时候，需要将传递进来的
-  环境变量与系统的环境变量进行合并后传递给MCP服务;
-5.使用AsyncExitStack异步上下文管理器来管理上下文，避免使用with多层嵌套;
-6.MCPClientManager的初始化非常耗时, 所以需要有机制可以判断避免重复初始化;
-7.由于config.yaml是直接暴露在项目中的, 所以在使用config.yaml进行初始化的时候必须二次校验;
-8.同时缓存ClientSession+Tool-Schema, 一个是客户端会话, 一个是工具参数声明;
-9.MCP客户端管理器在清除/停止使用的时候, 必须关闭异步上下文管理器、清除资源(ClientSession、Tool-Schema)、
-  初始化标识等, 从而避免资源泄露;
-"""
-
 logger = logging.getLogger(__name__)
 
 

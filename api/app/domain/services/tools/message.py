@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/16 1:09
-@Author  : thezehui@gmail.com
-@File    : message.py
-"""
 from typing import Optional, Union, List
 
 from app.domain.models.tool_result import ToolResult

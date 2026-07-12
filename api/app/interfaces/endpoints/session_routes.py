@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/04 10:15
-@Author  : thezehui@gmail.com
-@File    : session_routes.py
-"""
 import asyncio
 import logging
 from datetime import datetime

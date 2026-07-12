@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/19 10:44
-@Author  : thezehui@gmail.com
-@File    : conftest.py
-"""
 import pytest
 from fastapi.testclient import TestClient
 

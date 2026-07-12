@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/26 2:22
-@Author  : thezehui@gmail.com
-@File    : middleware.py
-"""
 import logging
 
 from fastapi import Request

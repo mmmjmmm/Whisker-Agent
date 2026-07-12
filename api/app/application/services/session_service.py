@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/04 10:18
-@Author  : thezehui@gmail.com
-@File    : session_service.py
-"""
 import logging
 from typing import List, Callable, Type
 

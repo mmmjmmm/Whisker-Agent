@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/21 1:15
-@Author  : thezehui@gmail.com
-@File    : file_service.py
-"""
 from typing import Tuple, BinaryIO, Callable
 
 from fastapi import UploadFile

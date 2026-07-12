@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/17 10:47
-@Author  : thezehui@gmail.com
-@File    : app_config_service.py
-"""
 import logging
 import uuid
 from typing import List

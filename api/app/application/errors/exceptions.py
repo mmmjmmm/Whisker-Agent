@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/17 17:44
-@Author  : thezehui@gmail.com
-@File    : exceptions.py
-"""
 from typing import Any
 
 

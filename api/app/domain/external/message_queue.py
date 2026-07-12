@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/20 10:59
-@Author  : thezehui@gmail.com
-@File    : message_queue.py
-"""
 from typing import Protocol, Any, Tuple
 
 

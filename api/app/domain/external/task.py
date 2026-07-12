@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/20 10:50
-@Author  : thezehui@gmail.com
-@File    : task.py
-"""
 from abc import ABC, abstractmethod
 from typing import Protocol, Optional
 

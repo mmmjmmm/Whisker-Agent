@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/17 10:49
-@Author  : thezehui@gmail.com
-@File    : status_routes.py
-"""
 import logging
 from typing import List
 

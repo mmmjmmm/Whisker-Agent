@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/20 1:25
-@Author  : thezehui@gmail.com
-@File    : postgres_health_checker.py
-"""
 import logging
 
 from sqlalchemy import text

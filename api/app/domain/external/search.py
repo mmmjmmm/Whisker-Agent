@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/24 14:55
-@Author  : thezehui@gmail.com
-@File    : search.py
-"""
 from typing import Protocol, Optional
 
 from app.domain.models.search import SearchResults

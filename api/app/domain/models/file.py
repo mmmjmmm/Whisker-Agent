@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/18 17:37
-@Author  : thezehui@gmail.com
-@File    : file.py
-"""
 import uuid
 
 from pydantic import BaseModel, Field

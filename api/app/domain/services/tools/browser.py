@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/01 21:14
-@Author  : thezehui@gmail.com
-@File    : browser.py
-"""
 from typing import Optional
 
 from app.domain.external.browser import Browser

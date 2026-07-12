@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/5/14 10:52
-@Author  : thezehui@gmail.com
-@File    : postgres.py
-"""
 import logging
 from functools import lru_cache
 from typing import Optional

@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/21 0:35
-@Author  : thezehui@gmail.com
-@File    : file.py
-"""
 import uuid
 from datetime import datetime
 

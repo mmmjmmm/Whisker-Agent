@@ -1,10 +1,5 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""
-@Time    : 2025/05/16 3:12
-@Author  : thezehui@gmail.com
-@File    : base.py
-"""
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import AsyncGenerator
