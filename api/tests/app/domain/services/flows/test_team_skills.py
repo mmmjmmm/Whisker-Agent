@@ -113,7 +113,10 @@ def test_team_agents_get_skill_without_expanding_worker_capability() -> None:
     )
 
     assert names(flow._planner) == {"load_skill"}
-    assert names(flow._synthesizer_factory()) == {"load_skill"}
+    synthesizer = flow._synthesizer_factory()
+    assert names(synthesizer) == {"load_skill"}
+    assert "除 load_skill 外不调用其他工具" in flow._planner._system_prompt
+    assert "除 load_skill 外不调用其他工具" in synthesizer._system_prompt
 
     analysis_worker = flow._orchestrator._worker_factory(
         "graph", "worker", task(TeamCapability.ANALYSIS), 1
