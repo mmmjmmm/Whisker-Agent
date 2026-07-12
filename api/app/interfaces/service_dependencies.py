@@ -14,7 +14,10 @@ from app.application.services.agent_service import AgentService
 from app.application.services.app_config_service import AppConfigService
 from app.application.services.file_service import FileService
 from app.application.services.session_service import SessionService
+from app.application.services.skill_service import SkillService
 from app.application.services.status_service import StatusService
+from app.domain.services.skills.parser import SkillParser
+from app.domain.services.skills.registry import SkillRegistry
 from app.infrastructure.external.file_storage.oss_file_storage import OSSFileStorage
 from app.infrastructure.external.health_checker.postgres_health_checker import PostgresHealthChecker
 from app.infrastructure.external.health_checker.redis_health_checker import RedisHealthChecker
@@ -23,6 +26,9 @@ from app.infrastructure.external.json_parser.repair_json_parser import RepairJSO
 from app.infrastructure.external.llm.openai_llm import OpenAILLM
 from app.infrastructure.external.sandbox.docker_sandbox import DockerSandbox
 from app.infrastructure.external.search.bing_search import BingSearchEngine
+from app.infrastructure.external.skill_bundle_storage.oss_skill_bundle_storage import (
+    OSSSkillBundleStorage,
+)
 from app.infrastructure.external.task.redis_stream_task import RedisStreamTask
 from app.infrastructure.repositories.file_app_config_repository import FileAppConfigRepository
 from app.infrastructure.storage.oss import OSS, get_oss
@@ -78,6 +84,22 @@ def get_file_service(
 
 def get_session_service() -> SessionService:
     return SessionService(uow_factory=get_uow, sandbox_cls=DockerSandbox)
+
+
+def get_skill_registry(
+        oss: OSS = Depends(get_oss),
+) -> SkillRegistry:
+    return SkillRegistry(
+        uow_factory=get_uow,
+        bundle_storage=OSSSkillBundleStorage(oss),
+        parser=SkillParser(),
+    )
+
+
+def get_skill_service(
+        registry: SkillRegistry = Depends(get_skill_registry),
+) -> SkillService:
+    return SkillService(registry)
 
 
 def get_agent_service(
