@@ -62,3 +62,19 @@ def test_parse_rejects_missing_runtime_fields(
 ) -> None:
     with pytest.raises(SkillParseError):
         SkillParser().parse(build_zip(entries))
+
+
+@pytest.mark.parametrize(
+    "frontmatter",
+    [
+        "- name\n- description",
+        "name: [unterminated",
+    ],
+)
+def test_parse_rejects_unreadable_frontmatter(frontmatter: str) -> None:
+    bundle = build_zip([
+        ("SKILL.md", f"---\n{frontmatter}\n---\n# Demo"),
+    ])
+
+    with pytest.raises(SkillParseError):
+        SkillParser().parse(bundle)

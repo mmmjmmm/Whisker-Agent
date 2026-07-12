@@ -42,7 +42,12 @@ class SkillParser:
         if match is None:
             raise SkillParseError("SKILL.md 缺少 YAML frontmatter")
 
-        metadata = yaml.safe_load(match.group("yaml")) or {}
+        try:
+            metadata = yaml.safe_load(match.group("yaml")) or {}
+        except yaml.YAMLError as exc:
+            raise SkillParseError("SKILL.md YAML frontmatter 无法解析") from exc
+        if not isinstance(metadata, dict):
+            raise SkillParseError("SKILL.md YAML frontmatter 必须是对象")
         name = metadata.get("name")
         description = metadata.get("description")
         if not isinstance(name, str) or not name.strip():
