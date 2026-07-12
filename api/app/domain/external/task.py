@@ -32,6 +32,7 @@ class TaskRunner(ABC):
 
 class Task(Protocol):
     """定义任务相关的操作接口协议"""
+    """不关心具体干什么，只负责任务的生命周期管理和它的两条队列"""
 
     async def invoke(self) -> None:
         """运行当前任务"""

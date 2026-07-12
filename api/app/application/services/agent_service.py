@@ -162,24 +162,30 @@ class AgentService:
     ) -> AsyncGenerator[BaseEvent, None]:
         """根据传递的信息调用Agent服务发起对话请求"""
         try:
+            # 1. 检查会话存在
             async with self._uow:
                 session = await self._uow.session.get_by_id(session_id)
             if not session:
                 raise RuntimeError("任务会话不存在, 请核实后重试")
 
+            # 2. 获取会话对应的 task
             task = await self._get_task(session)
+            # 3. 判断是否传递了message（用户是不是发了消息）
             if message:
+                # 4. Team 不允许被打断
                 if (
                         session.status is SessionStatus.RUNNING
                         and session.get_latest_agent_mode() is AgentMode.TEAM
                 ):
                     raise ConflictError("Team 运行中不接受新消息；请先停止当前任务")
-
+                
+                # 5. 会话不在运行中，创建一个新的 task 并准备启动
                 if session.status is not SessionStatus.RUNNING or task is None:
                     task = await self._create_task(session)
                     if not task:
                         raise RuntimeError(f"会话[{session_id}]创建任务失败")
 
+                # 6. 更新数据库消息
                 async with self._uow:
                     await self._uow.session.update_latest_message(
                         session_id=session_id,
@@ -191,6 +197,7 @@ class AgentService:
                         for file_id in (attachments or [])
                     ]
 
+                # 7. 把用户消息封装成一个 MessageEvent（role=user）
                 message_event = MessageEvent(
                     role="user",
                     message=message,
@@ -201,6 +208,7 @@ class AgentService:
                     ],
                     agent_mode=mode,
                 )
+                # 8. 关键：把用户消息放进输入流，好让后台 Agent 读到
                 event_id = await task.input_stream.put(
                     message_event.model_dump_json()
                 )
@@ -211,14 +219,15 @@ class AgentService:
                         session_id,
                         SessionStatus.RUNNING,
                     )
+                # 9. 启动后台任务(内部就是 asyncio.create_task,瞬间返回)
                 await task.invoke()
+                # 10. 用户消息回显给前端
                 yield message_event
                 logger.info(
                     f"往会话[{session_id}]输入消息队列写入消息: "
                     f"{message[:50]}..."
                 )
 
-            # 10.记录日志展示会话已启动
             logger.info(f"会话[{session_id}]已启动")
             logger.info(f"会话[{session_id}]任务实例: {task}")
 

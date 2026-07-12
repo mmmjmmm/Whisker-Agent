@@ -14,6 +14,18 @@ from app.domain.models.trace import (
 from app.domain.repositories.uow import IUnitOfWork
 
 
+def _token_count(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdecimal():
+            return int(stripped)
+    return 0
+
+
 class TraceService:
     """Trace read service."""
 
@@ -126,15 +138,15 @@ class TraceService:
             tool_call_count=len(tool_spans),
             models=models,
             prompt_tokens=sum(
-                int(span.attributes.get("prompt_tokens") or 0)
+                _token_count(span.attributes.get("prompt_tokens"))
                 for span in llm_spans
             ),
             completion_tokens=sum(
-                int(span.attributes.get("completion_tokens") or 0)
+                _token_count(span.attributes.get("completion_tokens"))
                 for span in llm_spans
             ),
             total_tokens=sum(
-                int(span.attributes.get("total_tokens") or 0)
+                _token_count(span.attributes.get("total_tokens"))
                 for span in llm_spans
             ),
         )

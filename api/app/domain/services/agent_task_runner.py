@@ -492,6 +492,7 @@ class AgentTaskRunner(TaskRunner):
                 )
                 root_error = None
                 try:
+                    # 驱动 PlannerReActFlow，获取他 yeild 的每个事件
                     async with aclosing(
                         self._run_flow(message_obj, mode)
                     ) as flow_events:

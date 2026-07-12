@@ -68,6 +68,7 @@ class RedisStreamTask(Task):
     async def invoke(self) -> None:
         """使用提供的task_runner来运行任务"""
         if self.done:
+            """创建一个后台任务，将异步逻辑给事件循环独立跑"""
             self._execution_task = asyncio.create_task(self._execute_task())
             logger.info(f"任务[{self._id}]开始执行")
 
