@@ -28,7 +28,7 @@ export default function RootLayout({
             {/* 左侧的面板 */}
             <LeftPanel />
             {/* 右侧的内容 */}
-            <div className="flex-1 bg-[#f8f8f7] h-screen overflow-hidden">
+            <div className="flex-1 bg-background h-screen overflow-hidden">
               {children}
             </div>
           </SidebarProvider>
