@@ -178,6 +178,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
           await onSend(trimmedMessage, files)
           // 发送成功后清空输入框和文件列表
           setInputValue('')
+          setMention(null)
           setFiles([])
           onInputValueChange?.('')
         } catch (error) {
