@@ -1,0 +1,19 @@
+from typing import Protocol
+
+from app.domain.models.skill import Skill
+
+
+class SkillRepository(Protocol):
+    """Skill 持久化协议。"""
+
+    async def save(self, skill: Skill) -> None: ...
+
+    async def get_all(self) -> list[Skill]: ...
+
+    async def get_enabled(self) -> list[Skill]: ...
+
+    async def get_by_id(self, skill_id: str) -> Skill | None: ...
+
+    async def get_by_name(self, name: str) -> Skill | None: ...
+
+    async def delete_by_id(self, skill_id: str) -> None: ...

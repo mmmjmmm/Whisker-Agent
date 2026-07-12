@@ -8,5 +8,6 @@
 from .base import Base
 from .file import FileModel
 from .session import SessionModel
+from .skill import SkillModel
 
-__all__ = ["Base", "SessionModel", "FileModel"]
+__all__ = ["Base", "SessionModel", "FileModel", "SkillModel"]

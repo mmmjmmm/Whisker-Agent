@@ -10,6 +10,7 @@ from typing import TypeVar
 
 from .file_repository import FileRepository
 from .session_repository import SessionRepository
+from .skill_repository import SkillRepository
 
 T = TypeVar("T", bound="IUnitOfWork")
 
@@ -18,6 +19,7 @@ class IUnitOfWork(ABC):
     """Uow模式协议接口"""
     file: FileRepository
     session: SessionRepository
+    skill: SkillRepository
 
     @abstractmethod
     async def commit(self):
