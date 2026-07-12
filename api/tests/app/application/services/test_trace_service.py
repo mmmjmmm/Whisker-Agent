@@ -109,3 +109,30 @@ def test_trace_service_summarizes_traces_and_metrics() -> None:
         assert metrics.total_tokens == 15
 
     asyncio.run(scenario())
+
+
+def test_trace_service_ignores_redacted_legacy_token_metrics() -> None:
+    async def scenario() -> None:
+        spans = [
+            make_span("trace-1", TraceSpanType.ROOT, duration_ms=100),
+            make_span(
+                "trace-1",
+                TraceSpanType.LLM,
+                attributes={
+                    "prompt_tokens": "***",
+                    "completion_tokens": "***",
+                    "total_tokens": "***",
+                },
+            ),
+        ]
+        service = TraceService(lambda: FakeUow(spans))
+
+        summaries = await service.list_traces("session-1")
+        metrics = await service.get_metrics("session-1")
+
+        assert summaries[0].prompt_tokens == 0
+        assert summaries[0].completion_tokens == 0
+        assert summaries[0].total_tokens == 0
+        assert metrics.total_tokens == 0
+
+    asyncio.run(scenario())

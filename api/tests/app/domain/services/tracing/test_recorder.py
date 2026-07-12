@@ -66,6 +66,23 @@ def test_redact_and_truncate_redacts_sensitive_keys() -> None:
     assert result["nested"]["safe"] == "value"
 
 
+def test_redact_and_truncate_keeps_token_usage_metrics() -> None:
+    result = redact_and_truncate(
+        {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+            "api_token": "secret-value",
+        },
+        max_bytes=1024,
+    )
+
+    assert result["prompt_tokens"] == 10
+    assert result["completion_tokens"] == 5
+    assert result["total_tokens"] == 15
+    assert result["api_token"] == "***"
+
+
 def test_redact_and_truncate_marks_large_payload() -> None:
     result = redact_and_truncate({"body": "x" * 200}, max_bytes=80)
 

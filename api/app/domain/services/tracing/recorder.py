@@ -22,6 +22,11 @@ SENSITIVE_KEY_PARTS = (
     "secret",
     "authorization",
 )
+TOKEN_USAGE_KEYS = {
+    "prompt_tokens",
+    "completion_tokens",
+    "total_tokens",
+}
 DEFAULT_MAX_PAYLOAD_BYTES = 20 * 1024
 _span_stack: ContextVar[tuple[TraceSpanHandle, ...]] = ContextVar(
     "trace_span_stack",
@@ -34,7 +39,9 @@ def _redact(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             lower_key = str(key).lower()
-            if any(part in lower_key for part in SENSITIVE_KEY_PARTS):
+            if lower_key not in TOKEN_USAGE_KEYS and any(
+                part in lower_key for part in SENSITIVE_KEY_PARTS
+            ):
                 redacted[key] = "***"
             else:
                 redacted[key] = _redact(item)
