@@ -66,6 +66,7 @@ class SkillRegistry:
         try:
             async with self._uow_factory() as uow:
                 await uow.skill.save(skill)
+                await uow.commit()
         except Exception:
             await self._delete_bundle_best_effort(new_key)
             raise
@@ -86,6 +87,7 @@ class SkillRegistry:
             skill.enabled = enabled
             skill.updated_at = datetime.now()
             await uow.skill.save(skill)
+            await uow.commit()
             return skill
 
     async def delete_skill(self, skill_id: str) -> bool:
@@ -94,6 +96,7 @@ class SkillRegistry:
             if skill is None:
                 return False
             await uow.skill.delete_by_id(skill_id)
+            await uow.commit()
 
         await self._delete_bundle_best_effort(skill.bundle_key)
         return True

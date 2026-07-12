@@ -5,6 +5,7 @@ class FakeSkillRepository:
     def __init__(self) -> None:
         self.records: dict[str, Skill] = {}
         self.fail_save = False
+        self.fail_commit = False
 
     async def save(self, skill: Skill) -> None:
         if self.fail_save:
@@ -41,17 +42,38 @@ class FakeSkillRepository:
 class FakeUnitOfWork:
     def __init__(self, repository: FakeSkillRepository) -> None:
         self.skill = repository
+        self._records_before: dict[str, Skill] = {}
 
     async def __aenter__(self):
+        self._records_before = {
+            skill_id: skill.model_copy(deep=True)
+            for skill_id, skill in self.skill.records.items()
+        }
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        if exc_type:
+            await self.rollback()
+            return None
+        try:
+            await self.commit()
+        except Exception:
+            # Mirror DBUnitOfWork: commit failures on context exit are logged
+            # and swallowed; closing the transaction discards its changes.
+            await self.rollback()
+            return None
         return None
 
     async def commit(self) -> None:
+        if self.skill.fail_commit:
+            raise RuntimeError("commit unavailable")
         return None
 
     async def rollback(self) -> None:
+        self.skill.records = {
+            skill_id: skill.model_copy(deep=True)
+            for skill_id, skill in self._records_before.items()
+        }
         return None
 
 

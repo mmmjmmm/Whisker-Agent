@@ -109,6 +109,58 @@ def test_save_failure_removes_new_bundle_and_keeps_current_record() -> None:
     asyncio.run(scenario())
 
 
+def test_commit_failure_removes_new_bundle_and_keeps_current_record() -> None:
+    async def scenario() -> None:
+        repository = FakeSkillRepository()
+        storage = FakeSkillBundleStorage()
+        registry = make_registry(repository, storage)
+        created = await registry.upsert_bundle(skill_zip("demo", "first"))
+        repository.fail_commit = True
+
+        with pytest.raises(RuntimeError, match="commit unavailable"):
+            await registry.upsert_bundle(skill_zip("demo", "second"))
+
+        assert repository.records[created.id].description == "first"
+        assert created.bundle_key in storage.objects
+        assert storage.deleted_keys[-1] != created.bundle_key
+
+    asyncio.run(scenario())
+
+
+def test_enable_commit_failure_keeps_current_state() -> None:
+    async def scenario() -> None:
+        repository = FakeSkillRepository()
+        storage = FakeSkillBundleStorage()
+        registry = make_registry(repository, storage)
+        created = await registry.upsert_bundle(skill_zip("demo", "first"))
+        repository.fail_commit = True
+
+        with pytest.raises(RuntimeError, match="commit unavailable"):
+            await registry.set_enabled(created.id, False)
+
+        assert repository.records[created.id].enabled is True
+
+    asyncio.run(scenario())
+
+
+def test_delete_commit_failure_keeps_record_and_bundle() -> None:
+    async def scenario() -> None:
+        repository = FakeSkillRepository()
+        storage = FakeSkillBundleStorage()
+        registry = make_registry(repository, storage)
+        created = await registry.upsert_bundle(skill_zip("demo", "first"))
+        repository.fail_commit = True
+
+        with pytest.raises(RuntimeError, match="commit unavailable"):
+            await registry.delete_skill(created.id)
+
+        assert created.id in repository.records
+        assert created.bundle_key in storage.objects
+        assert created.bundle_key not in storage.deleted_keys
+
+    asyncio.run(scenario())
+
+
 def test_disabled_skills_are_not_in_new_task_snapshot() -> None:
     async def scenario() -> None:
         repository = FakeSkillRepository()
