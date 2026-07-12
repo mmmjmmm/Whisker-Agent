@@ -122,6 +122,12 @@ class A2AToolContent(BaseModel):
     a2a_result: Any  # A2A智能体调用结果
 
 
+class SkillToolContent(BaseModel):
+    """Skill 加载摘要。"""
+    name: str
+    skill_dir: str
+
+
 ToolContent = Union[
     BrowserToolContent,
     SearchToolContent,
@@ -129,6 +135,7 @@ ToolContent = Union[
     FileToolContent,
     MCPToolContent,
     A2AToolContent,
+    SkillToolContent,
 ]
 
 

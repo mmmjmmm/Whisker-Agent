@@ -28,6 +28,8 @@ from app.domain.services.tools.mcp import MCPTool
 from app.domain.services.tools.message import MessageTool
 from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
+from app.domain.services.tools.skill import SkillTool
+from app.domain.services.skills.runtime import SkillRuntime
 from .base import BaseFlow, FlowStatus
 from ...repositories.uow import IUnitOfWork
 
@@ -49,6 +51,7 @@ class PlannerReActFlow(BaseFlow):
             search_engine: SearchEngine,  # 搜索引擎
             mcp_tool: MCPTool,  # mcp工具
             a2a_tool: A2ATool,  # a2a远程agent
+            skill_runtime: SkillRuntime,
     ) -> None:
         """构造函数，完成规划与执行流的初始化"""
         # 1.流初始化数据配置
@@ -59,7 +62,7 @@ class PlannerReActFlow(BaseFlow):
         self.plan: Optional[Plan] = None
 
         # 2.初始化Agent预设工具列表
-        tools = [
+        react_tools = [
             FileTool(sandbox=sandbox),
             ShellTool(sandbox=sandbox),
             BrowserTool(browser=browser),
@@ -68,6 +71,11 @@ class PlannerReActFlow(BaseFlow):
             mcp_tool,
             a2a_tool,
         ]
+        planner_tools = []
+        catalog = skill_runtime.catalog_prompt
+        if catalog:
+            planner_tools.append(SkillTool(skill_runtime))
+            react_tools.append(SkillTool(skill_runtime))
 
         # 3.创建规划Agent
         self.planner = PlannerAgent(
@@ -76,7 +84,8 @@ class PlannerReActFlow(BaseFlow):
             agent_config=agent_config,
             llm=llm,
             json_parser=json_parser,
-            tools=tools,
+            tools=planner_tools,
+            system_prompt_suffix=catalog,
         )
         logger.debug(f"创建规划Agent成功, 会话id: {self._session_id}")
 
@@ -87,7 +96,8 @@ class PlannerReActFlow(BaseFlow):
             agent_config=agent_config,
             llm=llm,
             json_parser=json_parser,
-            tools=tools,
+            tools=react_tools,
+            system_prompt_suffix=catalog,
         )
         logger.debug(f"创建执行Agent成功, 会话id: {self._session_id}")
 

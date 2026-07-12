@@ -24,6 +24,7 @@ from app.domain.models.session import Session, SessionStatus
 from app.domain.models.team import AgentMode
 from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.agent_task_runner import AgentTaskRunner
+from app.domain.services.skills.registry import SkillRegistry
 from app.application.errors.exceptions import ConflictError
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class AgentService:
             json_parser: JSONParser,
             search_engine: SearchEngine,
             file_storage: FileStorage,
+            skill_registry: SkillRegistry,
     ) -> None:
         """构造函数，完成Agent服务初始化"""
         self._uow_factory = uow_factory
@@ -56,6 +58,7 @@ class AgentService:
         self._json_parser = json_parser
         self._search_engine = search_engine
         self._file_storage = file_storage
+        self._skill_registry = skill_registry
         logger.info(f"AgentService初始化成功")
 
     async def _get_task(self, session: Session) -> Optional[Task]:
@@ -90,7 +93,10 @@ class AgentService:
             logger.error(f"获取沙箱[{sandbox.id}]中的浏览器实例失败")
             raise RuntimeError(f"获取沙箱[{sandbox.id}]中的浏览器实例失败")
 
-        # 5.创建AgentTaskRunner
+        # 5.固定本任务可见的 Skill 快照
+        skill_snapshots = await self._skill_registry.create_enabled_snapshot()
+
+        # 6.创建AgentTaskRunner
         task_runner = AgentTaskRunner(
             uow_factory=self._uow_factory,
             llm=self._llm,
@@ -103,9 +109,10 @@ class AgentService:
             browser=browser,
             search_engine=self._search_engine,
             sandbox=sandbox,
+            skill_snapshots=skill_snapshots,
         )
 
-        # 6.创建任务Task并更新会话中的信息
+        # 7.创建任务Task并更新会话中的信息
         task = self._task_cls.create(task_runner=task_runner)
         session.task_id = task.id
         async with self._uow:

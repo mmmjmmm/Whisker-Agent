@@ -10,7 +10,7 @@ import io
 import logging
 import uuid
 from contextlib import aclosing
-from typing import List, AsyncGenerator, Callable, BinaryIO
+from typing import List, AsyncGenerator, Callable, BinaryIO, Sequence
 
 from fastapi import UploadFile
 from pydantic import TypeAdapter
@@ -25,12 +25,13 @@ from app.domain.external.task import TaskRunner, Task
 from app.domain.models.app_config import AgentConfig, MCPConfig, A2AConfig
 from app.domain.models.event import ErrorEvent, Event, MessageEvent, BaseEvent, ToolEvent, ToolEventStatus, \
     BrowserToolContent, SearchToolContent, ShellToolContent, FileToolContent, MCPToolContent, A2AToolContent, \
-    TitleEvent, WaitEvent, DoneEvent
+    SkillToolContent, TitleEvent, WaitEvent, DoneEvent
 from app.domain.models.file import File
 from app.domain.models.message import Message
 from app.domain.models.search import SearchResults
 from app.domain.models.session import SessionStatus
 from app.domain.models.team import AgentMode
+from app.domain.models.skill import SkillSnapshot
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.flows.base import BaseFlow
@@ -38,6 +39,7 @@ from app.domain.services.flows.planner_react import PlannerReActFlow
 from app.domain.services.flows.team import build_team_flow
 from app.domain.services.tools.a2a import A2ATool
 from app.domain.services.tools.mcp import MCPTool
+from app.domain.services.skills.runtime import SkillRuntime
 from app.infrastructure.storage.oss import get_oss
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,7 @@ class AgentTaskRunner(TaskRunner):
             browser: Browser,  # 浏览器
             search_engine: SearchEngine,  # 搜索引擎
             sandbox: Sandbox,  # 沙箱
+            skill_snapshots: Sequence[SkillSnapshot],
     ) -> None:
         """构造函数，完成Agent任务运行器的创建"""
         self._uow_factory = uow_factory
@@ -71,6 +74,7 @@ class AgentTaskRunner(TaskRunner):
         self._a2a_tool = A2ATool()
         self._file_storage = file_storage
         self._browser = browser
+        self._skill_runtime = SkillRuntime(skill_snapshots, sandbox)
         self._react_flow = PlannerReActFlow(
             uow_factory=uow_factory,
             llm=llm,
@@ -82,6 +86,7 @@ class AgentTaskRunner(TaskRunner):
             search_engine=search_engine,
             mcp_tool=self._mcp_tool,
             a2a_tool=self._a2a_tool,
+            skill_runtime=self._skill_runtime,
         )
         self._team_flow_factory = lambda: build_team_flow(
             uow_factory=uow_factory,
@@ -94,6 +99,7 @@ class AgentTaskRunner(TaskRunner):
             search_engine=search_engine,
             mcp_tool=self._mcp_tool,
             a2a_tool=self._a2a_tool,
+            skill_runtime=self._skill_runtime,
         )
         self._active_flow: BaseFlow | None = None
 
@@ -326,6 +332,17 @@ class AgentTaskRunner(TaskRunner):
                         event.tool_content = MCPToolContent(result="(MCP工具无可用结果)") \
                             if event.tool_name == "mcp" \
                             else A2AToolContent(a2a_result="(A2A智能体无可用结果)")
+                elif event.tool_name == "skill":
+                    data = event.function_result.data if event.function_result else None
+                    if (
+                            event.function_result
+                            and event.function_result.success
+                            and isinstance(data, dict)
+                    ):
+                        event.tool_content = SkillToolContent(
+                            name=str(data.get("name", "")),
+                            skill_dir=str(data.get("skill_dir", "")),
+                        )
         except Exception as e:
             logger.exception(f"AgentTaskRunner生成工具内容失败: {str(e)}")
 

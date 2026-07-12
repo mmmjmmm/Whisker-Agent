@@ -104,6 +104,7 @@ def get_skill_service(
 
 def get_agent_service(
         oss: OSS = Depends(get_oss),
+        skill_registry: SkillRegistry = Depends(get_skill_registry),
 ) -> AgentService:
     # 1.获取应用配置信息(读取配置需要实时获取,所以不配置缓存)
     app_config_repository = FileAppConfigRepository(config_path=settings.app_config_filepath)
@@ -128,4 +129,5 @@ def get_agent_service(
         json_parser=RepairJSONParser(),
         search_engine=BingSearchEngine(),
         file_storage=file_storage,
+        skill_registry=skill_registry,
     )
