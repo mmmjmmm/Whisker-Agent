@@ -11,6 +11,7 @@ import { SearchTool } from './search-tool'
 import { BrowserTool } from './browser-tool'
 import { McpTool } from './mcp-tool'
 import { A2aTool } from './a2a-tool'
+import { SkillTool } from './skill-tool'
 import { DefaultTool } from './default-tool'
 
 export type { ToolKind } from './utils'
@@ -22,6 +23,7 @@ export { SearchTool } from './search-tool'
 export { BrowserTool } from './browser-tool'
 export { McpTool } from './mcp-tool'
 export { A2aTool } from './a2a-tool'
+export { SkillTool } from './skill-tool'
 export { DefaultTool } from './default-tool'
 export { ToolBadge } from './tool-badge'
 
@@ -38,6 +40,7 @@ const TOOL_COMPONENTS: Record<ToolKind, ComponentType<{ label: string; onClick?:
   browser: BrowserTool,
   mcp: McpTool,
   a2a: A2aTool,
+  skill: SkillTool,
   default: DefaultTool,
 }
 

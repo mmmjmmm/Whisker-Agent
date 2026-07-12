@@ -156,6 +156,27 @@ export type CreateA2AServerParams = {
   base_url: string;
 };
 
+/**
+ * Skill 列表项
+ */
+export type SkillListItem = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+};
+
+/**
+ * Skill 详情
+ */
+export type SkillDetail = SkillListItem & {
+  skill_md: string;
+};
+
+export type SkillsData = {
+  skills: SkillListItem[];
+};
+
 // ==================== 文件模块类型 ====================
 
 /**
@@ -286,6 +307,11 @@ export type ToolEvent = {
   agent_id?: string | null;
   attempt?: number | null;
   [key: string]: unknown;
+};
+
+export type SkillToolContent = {
+  name: string;
+  skill_dir: string;
 };
 
 /**

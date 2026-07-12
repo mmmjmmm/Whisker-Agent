@@ -17,6 +17,7 @@ import {
   Wrench,
   Bot,
   Sparkles,
+  BookOpen,
 } from 'lucide-react'
 
 /* ------------------------------------------------------------------ */
@@ -52,6 +53,7 @@ function getToolDescription(kind: ToolKind): string {
     file: '文件',
     mcp: 'MCP 服务',
     a2a: 'A2A 智能体',
+    skill: 'Skill',
     message: '消息',
     default: '工具',
   }
@@ -66,6 +68,7 @@ function getToolIcon(kind: ToolKind) {
     file: FileSearch,
     mcp: Wrench,
     a2a: Bot,
+    skill: BookOpen,
     message: Monitor,
     default: Monitor,
   }
@@ -309,6 +312,41 @@ function A2APreview({ tool }: { tool: ToolEvent }) {
   )
 }
 
+function SkillPreview({ tool }: { tool: ToolEvent }) {
+  const content = getToolContent(tool)
+  const name = typeof content?.name === 'string'
+    ? content.name
+    : getArg(tool.args, 'name')
+  const skillDir = typeof content?.skill_dir === 'string'
+    ? content.skill_dir
+    : ''
+
+  return (
+    <div className="flex h-full flex-col gap-4 p-4">
+      <div className="rounded-lg border bg-gray-50 p-4 text-sm">
+        <div>
+          <span className="text-gray-500">Skill：</span>
+          <span className="text-gray-800">{name || '未知'}</span>
+        </div>
+        <div>
+          <span className="text-gray-500">状态：</span>
+          <span className="text-gray-800">
+            {tool.status === 'called' ? '已加载' : '正在加载'}
+          </span>
+        </div>
+        {skillDir && (
+          <div className="mt-2">
+            <div className="text-gray-500">沙箱目录：</div>
+            <code className="mt-1 block break-all rounded bg-white p-2 text-xs text-gray-700">
+              {skillDir}
+            </code>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DefaultPreview({ tool }: { tool: ToolEvent }) {
   return (
     <ScrollArea className="h-full">
@@ -379,6 +417,7 @@ export function ToolPreviewPanel({
         {kind === 'file' && <FileToolPreview tool={tool} />}
         {kind === 'mcp' && <MCPPreview tool={tool} />}
         {kind === 'a2a' && <A2APreview tool={tool} />}
+        {kind === 'skill' && <SkillPreview tool={tool} />}
         {(kind === 'default' || kind === 'message') && <DefaultPreview tool={tool} />}
 
         {/* "跳转实时" overlaid at bottom-center */}

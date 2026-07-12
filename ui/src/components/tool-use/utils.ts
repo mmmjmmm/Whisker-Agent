@@ -8,6 +8,7 @@ export type ToolKind =
   | 'browser'
   | 'mcp'
   | 'a2a'
+  | 'skill'
   | 'default'
 
 export function getArg(args: Record<string, unknown>, ...keys: string[]): string {
@@ -30,6 +31,9 @@ export function getToolKind(data: ToolEvent | null | undefined): ToolKind {
 
   if (data.function === 'message_notify_user' || data.function === 'message_ask_user') {
     return 'message'
+  }
+  if (name === 'skill' || fn === 'load_skill') {
+    return 'skill'
   }
   if (name === 'shell' || name.includes('bash') || fn === 'shell_execute' || fn === 'run' || fn === 'execute' || fn === 'run_command') {
     return 'bash'
@@ -65,6 +69,11 @@ export function getFriendlyToolLabel(data: ToolEvent | null | undefined): string
   if (data.function === 'message_notify_user' || data.function === 'message_ask_user') {
     const text = typeof args.text === 'string' ? args.text : ''
     return text || '—'
+  }
+
+  if (name === 'skill' || fn === 'load_skill') {
+    const skillName = getArg(args, 'name')
+    return skillName ? `正在加载 Skill ${truncate(skillName, 60)}` : '正在加载 Skill'
   }
 
   const filepath = getArg(args, 'filepath', 'path', 'pathname')

@@ -31,6 +31,9 @@ export type {
   ListA2AServerItem,
   A2AServersData,
   CreateA2AServerParams,
+  SkillListItem,
+  SkillDetail,
+  SkillsData,
   FileInfo,
   FileUploadParams,
   Session,
@@ -43,6 +46,7 @@ export type {
   PlanEvent,
   StepEvent,
   ToolEvent,
+  SkillToolContent,
   SSEEventType,
   SSEEventData,
   SSEEventHandler,
@@ -55,4 +59,4 @@ export type {
 export { configApi } from "./config";
 export { fileApi } from "./file";
 export { sessionApi } from "./session";
-
+export { skillApi } from "./skill";

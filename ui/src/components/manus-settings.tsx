@@ -2,7 +2,7 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react'
 import {toast} from 'sonner'
-import {LayoutGrid, LayoutList, Loader2, Languages, Settings, Trash, Wrench} from 'lucide-react'
+import {BookOpen, LayoutGrid, LayoutList, Loader2, Languages, Settings, Trash, Wrench} from 'lucide-react'
 import {
   Dialog,
   DialogClose,
@@ -23,6 +23,7 @@ import {Switch} from '@/components/ui/switch'
 import {Textarea} from '@/components/ui/textarea'
 import {configApi} from '@/lib/api'
 import type {AgentConfig, LLMConfig, ListMCPServerItem, ListA2AServerItem} from '@/lib/api'
+import {SkillSettings} from '@/components/skill-settings'
 
 // ==================== 通用配置 ====================
 
@@ -528,7 +529,7 @@ function MCPSetting({servers, loading, onToggleEnabled, onDelete, onAdd}: MCPSet
 
 // ==================== 设置弹窗主组件 ====================
 
-type SettingTab = 'common-setting' | 'llm-setting' | 'a2a-setting' | 'mcp-setting'
+type SettingTab = 'common-setting' | 'llm-setting' | 'skill-setting' | 'a2a-setting' | 'mcp-setting'
 
 const SETTING_MENUS: Array<{
   key: SettingTab
@@ -537,6 +538,7 @@ const SETTING_MENUS: Array<{
 }> = [
   {key: 'common-setting', icon: Settings, title: '通用配置'},
   {key: 'llm-setting', icon: Languages, title: '模型提供商'},
+  {key: 'skill-setting', icon: BookOpen, title: 'Skills'},
   {key: 'a2a-setting', icon: LayoutGrid, title: 'A2A Agent 配置'},
   {key: 'mcp-setting', icon: Wrench, title: 'MCP 服务器'},
 ]
@@ -816,6 +818,7 @@ export function ManusSettings() {
                 onAdd={handleA2AAdd}
               />
             )}
+            {activeSetting === 'skill-setting' && <SkillSettings/>}
             {activeSetting === 'mcp-setting' && (
               <MCPSetting
                 servers={mcpServers}
