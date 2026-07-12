@@ -80,6 +80,14 @@ class BaseAgent(ABC):
                 self._session_id,
                 self.name,
             )
+        if self._memory.messages:
+            if self._memory.messages[0].get("role") == "system":
+                self._memory.messages[0]["content"] = self._system_prompt
+            else:
+                self._memory.messages.insert(
+                    0,
+                    {"role": "system", "content": self._system_prompt},
+                )
 
     def _get_available_tools(self) -> List[Dict[str, Any]]:
         """获取Agent所有可用的工具列表参数声明/Schema"""

@@ -73,6 +73,37 @@ class ProbePlanner(ProbeAgent):
     _tool_choice = "none"
 
 
+class StoredMemorySessionRepository:
+    def __init__(self, memory: Memory) -> None:
+        self.memory = memory
+
+    async def get_memory(self, session_id: str, agent_name: str) -> Memory:
+        return self.memory
+
+    async def save_memory(self, session_id: str, agent_name: str, memory: Memory) -> None:
+        self.memory = memory
+
+
+class StoredMemoryUnitOfWork:
+    def __init__(self, memory: Memory) -> None:
+        self.session = StoredMemorySessionRepository(memory)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        return None
+
+
+class FinalLLM:
+    def __init__(self) -> None:
+        self.messages = None
+
+    async def invoke(self, messages, tools=None, response_format=None, tool_choice=None):
+        self.messages = copy.deepcopy(messages)
+        return {"role": "assistant", "content": "done"}
+
+
 def build_agent(agent_type=ProbeAgent, *, tools=None, suffix=""):
     llm = FakeLLM()
     memory = Memory()
@@ -130,3 +161,30 @@ def test_none_tool_choice_only_opens_when_skill_tool_exists() -> None:
 
     assert with_skill._tool_choice is None
     assert without_skill._tool_choice == "none"
+
+
+def test_new_agent_refreshes_catalog_in_persisted_memory() -> None:
+    async def scenario() -> None:
+        memory = Memory(messages=[
+            {"role": "system", "content": "OLD CATALOG"},
+            {"role": "user", "content": "history"},
+        ])
+        llm = FinalLLM()
+        agent = ProbeAgent(
+            uow_factory=lambda: StoredMemoryUnitOfWork(memory),
+            session_id="session-id",
+            agent_config=AgentConfig(max_iterations=3, max_retries=2),
+            llm=llm,
+            json_parser=FakeJSONParser(),
+            tools=[],
+            system_prompt_suffix="NEW CATALOG",
+        )
+
+        _ = [event async for event in agent.invoke("continue")]
+
+        assert llm.messages[0]["content"] == (
+            "BASE SYSTEM PROMPT\n\nNEW CATALOG"
+        )
+        assert llm.messages[1] == {"role": "user", "content": "history"}
+
+    asyncio.run(scenario())
