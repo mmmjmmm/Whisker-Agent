@@ -457,7 +457,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
         {previewFile && (
           <div
             className="relative flex-shrink-0 h-full animate-in slide-in-from-right duration-300"
-            style={{ width: rightPanelWidth }}
+            style={{ width: rightPanelWidth, maxWidth: '100vw' }}
           >
             <div
               role="separator"
@@ -475,8 +475,8 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
         {/* 工具预览面板 */}
         {resolvedPreviewTool && (
           <div
-            className="relative flex-shrink-0 h-full py-2 pr-2 animate-in slide-in-from-right duration-300"
-            style={{ width: rightPanelWidth }}
+            className="relative flex-shrink-0 h-full animate-in slide-in-from-right duration-300"
+            style={{ width: rightPanelWidth, maxWidth: '100vw' }}
           >
             <div
               role="separator"

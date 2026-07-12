@@ -80,7 +80,7 @@ export function VNCOverlay({ sessionId, onClose }: VNCOverlayProps) {
         {/* 连接失败 / 沙箱离线 */}
         {hasError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
-            <div className="flex flex-col items-center gap-3 rounded-2xl bg-gray-900/90 border border-gray-700 px-10 py-8">
+            <div className="runner-vnc-control flex flex-col items-center gap-3 px-10 py-8">
               <WifiOff className="size-10 text-gray-400" />
               <div className="text-base font-medium text-white">无法连接到沙箱</div>
               <p className="text-sm text-gray-400 text-center max-w-[280px] leading-relaxed">
@@ -89,7 +89,7 @@ export function VNCOverlay({ sessionId, onClose }: VNCOverlayProps) {
               <Button
                 variant="secondary"
                 onClick={onClose}
-                className="mt-2 gap-2 rounded-full px-6 bg-white/10 hover:bg-white/20 text-white border border-gray-600 cursor-pointer"
+                className="mt-2 gap-2 rounded-md px-6 bg-white/10 hover:bg-white/20 text-white border border-gray-600 cursor-pointer"
               >
                 <X size={14} />
                 退出远程桌面
@@ -105,7 +105,7 @@ export function VNCOverlay({ sessionId, onClose }: VNCOverlayProps) {
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-2 rounded-full px-5 py-2 bg-black/60 backdrop-blur text-white/90 hover:bg-black/80 text-sm shadow-xl transition-colors cursor-pointer border border-white/10"
+            className="runner-vnc-control inline-flex items-center gap-2 px-5 py-2 text-sm text-white/90 hover:bg-black/80 transition-colors duration-200 cursor-pointer"
           >
             <X size={14} />
             退出远程桌面

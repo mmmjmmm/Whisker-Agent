@@ -89,7 +89,7 @@ function JumpToLatestButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 backdrop-blur text-sm text-gray-700 hover:bg-white shadow-md border border-gray-200 transition-colors cursor-pointer"
+      className="runner-floating-surface inline-flex items-center gap-1.5 bg-card px-3 py-1.5 text-sm text-foreground hover:bg-secondary transition-colors duration-200 cursor-pointer"
     >
       <Play size={12} className="fill-current" />
       <span>跳转实时</span>
@@ -440,11 +440,11 @@ export function ToolPreviewPanel({
   const toolDesc = getToolDescription(kind);
 
   return (
-    <div className="flex flex-col h-full rounded-xl bg-white shadow-xl overflow-hidden">
+    <div className="runner-preview-shell flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex flex-col gap-2 px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+      <div className="runner-panel-header flex flex-col gap-2 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900">
+          <h2 className="text-base font-semibold text-foreground">
             WhiskerAgent 的电脑
           </h2>
           <Button
@@ -457,13 +457,13 @@ export function ToolPreviewPanel({
             <Maximize2 size={16} />
           </Button>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <Monitor size={14} className="text-gray-500 flex-shrink-0" />
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Monitor size={14} className="text-muted-foreground flex-shrink-0" />
           <span>WhiskerAgent 正在使用</span>
-          <span className="font-medium text-gray-800">{toolDesc}</span>
+          <span className="font-medium text-foreground">{toolDesc}</span>
         </div>
-        <div className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 border border-gray-200 bg-gray-100 text-gray-700 text-xs w-fit max-w-full">
-          <ToolIcon size={14} className="flex-shrink-0 text-gray-500" />
+        <div className="font-meta inline-flex items-center gap-1.5 rounded-md border border-border bg-secondary px-2.5 py-1 text-xs text-foreground w-fit max-w-full">
+          <ToolIcon size={14} className="flex-shrink-0 text-muted-foreground" />
           <span className="truncate">{label}</span>
         </div>
       </div>

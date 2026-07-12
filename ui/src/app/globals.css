@@ -288,6 +288,18 @@
         border-radius: 4px;
         color: var(--foreground);
     }
+
+    .runner-preview-shell {
+        border-left: 1px solid var(--foreground);
+        background: var(--card);
+    }
+
+    .runner-vnc-control {
+        border: 1px solid rgb(255 255 255 / 28%);
+        border-radius: 6px;
+        background: rgb(0 0 0 / 72%);
+        box-shadow: 4px 4px 0 rgb(0 0 0 / 28%);
+    }
 }
 
 @layer base {

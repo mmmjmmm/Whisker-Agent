@@ -130,16 +130,16 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-white border-l border-gray-200">
+    <div className="runner-preview-shell flex h-full flex-col">
       {/* 头部：文件名 + 操作按钮 - 添加背景色区分 */}
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+      <div className="runner-panel-header flex items-center justify-between gap-3 px-4 py-3 flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-100 text-blue-600">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-blue-100 text-blue-600">
             <FileText size={16} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-gray-900 truncate">{file.filename}</p>
-            <p className="text-xs text-gray-500">
+            <p className="text-sm font-medium text-foreground truncate">{file.filename}</p>
+            <p className="font-meta text-xs text-muted-foreground">
               {file.extension.replace(/^\./, '')} · {formatFileSize(file.size)}
             </p>
           </div>
@@ -170,7 +170,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
       <div className="flex-1 overflow-hidden">
         {loading && (
           <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-gray-500">加载中...</p>
+            <p className="text-sm text-muted-foreground">加载中...</p>
           </div>
         )}
 
@@ -182,12 +182,12 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
 
         {!loading && !error && fileType.type === 'unsupported' && (
           <div className="flex flex-col items-center justify-center h-full px-6 gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+            <div className="flex h-16 w-16 items-center justify-center rounded-md bg-secondary text-muted-foreground">
               <FileText size={32} />
             </div>
             <div className="text-center">
-              <p className="text-sm text-gray-700 font-medium">暂不支持预览此文件类型</p>
-              <p className="text-xs text-gray-500 mt-1">您可以下载文件后查看</p>
+              <p className="text-sm text-foreground font-medium">暂不支持预览此文件类型</p>
+              <p className="text-xs text-muted-foreground mt-1">您可以下载文件后查看</p>
             </div>
             <Button
               variant="outline"
@@ -207,7 +207,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
               <img 
                 src={imageUrl} 
                 alt={file.filename}
-                className="max-w-full h-auto rounded-lg border"
+                className="max-w-full h-auto rounded-md border border-border"
               />
             </div>
           </ScrollArea>
@@ -215,7 +215,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
 
         {!loading && !error && fileType.type === 'text' && content !== null && (
           <ScrollArea className="h-full">
-            <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-words text-gray-700">
+            <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-words text-foreground">
               {content}
             </pre>
           </ScrollArea>

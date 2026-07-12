@@ -106,3 +106,10 @@ test('conversation surfaces use the Runner execution language', () => {
   assert.match(read('src/components/plan-panel.tsx'), /runner-panel/)
   assert.match(read('src/components/tool-use/tool-badge.tsx'), /font-meta/)
 })
+
+test('preview surfaces render as flat Runner work windows', () => {
+  assert.match(read('src/components/file-preview-panel.tsx'), /runner-preview-shell/)
+  assert.match(read('src/components/tool-preview-panel.tsx'), /runner-preview-shell/)
+  assert.match(read('src/components/tool-preview-panel.tsx'), /runner-panel-header/)
+  assert.match(read('src/components/vnc-overlay.tsx'), /runner-vnc-control/)
+})
