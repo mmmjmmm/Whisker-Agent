@@ -67,13 +67,13 @@ def test_runtime_syncs_full_bundle_once_for_concurrent_loads() -> None:
         )
 
         expected_dir = (
-            "/home/ubuntu/.mooc-manus/skills/skill-id/content/demo"
+            "/home/ubuntu/.whisker-manus/skills/skill-id/content/demo"
         )
         assert first.skill_dir == expected_dir
         assert second.skill_dir == expected_dir
         assert sandbox.uploads == [
             (
-                "/home/ubuntu/.mooc-manus/skills/skill-id/bundle.zip",
+                "/home/ubuntu/.whisker-manus/skills/skill-id/bundle.zip",
                 b"zip-bytes",
             )
         ]
@@ -90,10 +90,10 @@ def test_runtime_replaces_existing_content_before_extracting() -> None:
 
         await runtime.load("demo")
 
-        content_dir = "/home/ubuntu/.mooc-manus/skills/skill-id/content"
+        content_dir = "/home/ubuntu/.whisker-manus/skills/skill-id/content"
         assert sandbox.commands == [
             f"rm -rf {content_dir} && python3 -m zipfile -e "
-            "/home/ubuntu/.mooc-manus/skills/skill-id/bundle.zip "
+            "/home/ubuntu/.whisker-manus/skills/skill-id/bundle.zip "
             f"{content_dir}"
         ]
 

@@ -1,11 +1,11 @@
-# MoocManus
+# WhiskerAgent
 
-MoocManus 是一个可私有化部署的通用 AI Agent 系统。当前代码由 FastAPI 后端、Next.js 前端、沙箱服务、PostgreSQL、Redis 和 Nginx 网关组成，支持会话式任务执行、文件上传与预览、MCP/A2A 工具配置、Skill 管理、任务 Trace 观测，以及通过 VNC 查看沙箱浏览器。
+WhiskerAgent 是一个可私有化部署的通用 AI Agent 系统。当前代码由 FastAPI 后端、Next.js 前端、沙箱服务、PostgreSQL、Redis 和 Nginx 网关组成，支持会话式任务执行、文件上传与预览、MCP/A2A 工具配置、Skill 管理、任务 Trace 观测，以及通过 VNC 查看沙箱浏览器。
 
 ## 项目结构
 
 ```text
-mooc-manus/
+whisker-manus/
 ├── api/                 # FastAPI 后端，负责任务会话、Agent 编排、配置、文件、Trace
 ├── ui/                  # Next.js 前端，负责聊天界面、配置页、文件/工具/VNC/Trace 预览
 ├── sandbox/             # 沙箱镜像，内置 Python、Node.js、Chromium、Shell、VNC
@@ -131,14 +131,14 @@ Nginx (manus-nginx)
 
 ## 容器
 
-| 容器 | 说明 |
-| --- | --- |
-| `manus-nginx` | 统一入口，代理 UI、API、SSE、WebSocket |
-| `manus-ui` | Next.js 前端服务 |
-| `manus-api` | FastAPI 后端服务，启动时自动迁移数据库 |
-| `manus-postgres` | PostgreSQL 16 |
-| `manus-redis` | Redis 7 |
-| `manus-sandbox` | 固定沙箱镜像和动态沙箱镜像来源 |
+| 容器             | 说明                                   |
+| ---------------- | -------------------------------------- |
+| `manus-nginx`    | 统一入口，代理 UI、API、SSE、WebSocket |
+| `manus-ui`       | Next.js 前端服务                       |
+| `manus-api`      | FastAPI 后端服务，启动时自动迁移数据库 |
+| `manus-postgres` | PostgreSQL 16                          |
+| `manus-redis`    | Redis 7                                |
+| `manus-sandbox`  | 固定沙箱镜像和动态沙箱镜像来源         |
 
 ## 常用命令
 

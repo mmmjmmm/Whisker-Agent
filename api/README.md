@@ -1,6 +1,6 @@
-# MoocManus API
+# WhiskerAgent API
 
-`api/` 是 MoocManus 的后端服务，基于 FastAPI 提供任务会话、Agent 调度、配置管理、文件处理、Skill 管理、Trace 观测和沙箱代理能力。
+`api/` 是 WhiskerAgent 的后端服务，基于 FastAPI 提供任务会话、Agent 调度、配置管理、文件处理、Skill 管理、Trace 观测和沙箱代理能力。
 
 ## 技术栈
 
@@ -37,10 +37,10 @@ api/
 
 API 同时读取环境变量和 `config.yaml`：
 
-| 来源 | 说明 |
-| --- | --- |
+| 来源              | 说明                                                 |
+| ----------------- | ---------------------------------------------------- |
 | `.env` / 环境变量 | 运行环境、日志、PostgreSQL、Redis、OSS、沙箱连接参数 |
-| `config.yaml` | LLM、Agent、MCP Server、A2A Server 配置 |
+| `config.yaml`     | LLM、Agent、MCP Server、A2A Server 配置              |
 
 核心环境变量见根目录 `.env.example`。容器部署时由根目录 `docker-compose.yml` 通过 `env_file: .env` 注入。
 
@@ -50,38 +50,38 @@ API 同时读取环境变量和 `config.yaml`：
 
 所有路由统一挂载在 `/api` 前缀下。
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `GET` | `/api/status` | 检查 FastAPI、PostgreSQL、Redis、OSS 状态 |
-| `GET` / `POST` | `/api/app-config/llm` | 获取或更新 LLM 配置，返回时隐藏 `api_key` |
-| `GET` / `POST` | `/api/app-config/agent` | 获取或更新 Agent 通用配置 |
-| `GET` / `POST` | `/api/app-config/mcp-servers` | 获取或新增 MCP Server |
-| `POST` | `/api/app-config/mcp-servers/{server_name}/enabled` | 启用或禁用 MCP Server |
-| `POST` | `/api/app-config/mcp-servers/{server_name}/delete` | 删除 MCP Server |
-| `GET` / `POST` | `/api/app-config/a2a-servers` | 获取或新增 A2A Server |
-| `POST` | `/api/app-config/a2a-servers/{a2a_id}/enabled` | 启用或禁用 A2A Server |
-| `POST` | `/api/app-config/a2a-servers/{a2a_id}/delete` | 删除 A2A Server |
-| `GET` / `POST` | `/api/app-config/skills` | 获取 Skill 列表或上传 Skill ZIP |
-| `GET` | `/api/app-config/skills/{skill_id}` | 获取 Skill 详情 |
-| `POST` | `/api/app-config/skills/{skill_id}/enabled` | 启用或禁用 Skill |
-| `POST` | `/api/app-config/skills/{skill_id}/delete` | 删除 Skill |
-| `POST` | `/api/files` | 上传文件到 OSS 并登记文件信息 |
-| `GET` | `/api/files/{file_id}` | 获取文件元信息 |
-| `GET` | `/api/files/{file_id}/download` | 下载文件 |
-| `GET` / `POST` | `/api/sessions` | 获取会话列表或创建会话 |
-| `POST` | `/api/sessions/stream` | SSE 流式订阅会话列表 |
-| `GET` | `/api/sessions/{session_id}` | 获取会话详情和事件列表 |
-| `POST` | `/api/sessions/{session_id}/chat` | SSE 流式对话 |
-| `POST` | `/api/sessions/{session_id}/stop` | 停止会话任务 |
-| `POST` | `/api/sessions/{session_id}/delete` | 删除会话 |
-| `POST` | `/api/sessions/{session_id}/clear-unread-message-count` | 清空未读计数 |
-| `GET` | `/api/sessions/{session_id}/files` | 获取会话文件列表 |
-| `POST` | `/api/sessions/{session_id}/file` | 读取会话沙箱中的文件内容 |
-| `POST` | `/api/sessions/{session_id}/shell` | 读取会话沙箱中的 Shell 输出 |
-| `GET` | `/api/sessions/{session_id}/traces` | 获取会话 Trace 列表 |
-| `GET` | `/api/sessions/{session_id}/traces/{trace_id}` | 获取 Trace 详情 |
-| `GET` | `/api/sessions/{session_id}/trace-metrics` | 获取会话 Trace 指标 |
-| `WS` | `/api/sessions/{session_id}/vnc` | 代理沙箱 VNC WebSocket |
+| 方法           | 路径                                                    | 说明                                      |
+| -------------- | ------------------------------------------------------- | ----------------------------------------- |
+| `GET`          | `/api/status`                                           | 检查 FastAPI、PostgreSQL、Redis、OSS 状态 |
+| `GET` / `POST` | `/api/app-config/llm`                                   | 获取或更新 LLM 配置，返回时隐藏 `api_key` |
+| `GET` / `POST` | `/api/app-config/agent`                                 | 获取或更新 Agent 通用配置                 |
+| `GET` / `POST` | `/api/app-config/mcp-servers`                           | 获取或新增 MCP Server                     |
+| `POST`         | `/api/app-config/mcp-servers/{server_name}/enabled`     | 启用或禁用 MCP Server                     |
+| `POST`         | `/api/app-config/mcp-servers/{server_name}/delete`      | 删除 MCP Server                           |
+| `GET` / `POST` | `/api/app-config/a2a-servers`                           | 获取或新增 A2A Server                     |
+| `POST`         | `/api/app-config/a2a-servers/{a2a_id}/enabled`          | 启用或禁用 A2A Server                     |
+| `POST`         | `/api/app-config/a2a-servers/{a2a_id}/delete`           | 删除 A2A Server                           |
+| `GET` / `POST` | `/api/app-config/skills`                                | 获取 Skill 列表或上传 Skill ZIP           |
+| `GET`          | `/api/app-config/skills/{skill_id}`                     | 获取 Skill 详情                           |
+| `POST`         | `/api/app-config/skills/{skill_id}/enabled`             | 启用或禁用 Skill                          |
+| `POST`         | `/api/app-config/skills/{skill_id}/delete`              | 删除 Skill                                |
+| `POST`         | `/api/files`                                            | 上传文件到 OSS 并登记文件信息             |
+| `GET`          | `/api/files/{file_id}`                                  | 获取文件元信息                            |
+| `GET`          | `/api/files/{file_id}/download`                         | 下载文件                                  |
+| `GET` / `POST` | `/api/sessions`                                         | 获取会话列表或创建会话                    |
+| `POST`         | `/api/sessions/stream`                                  | SSE 流式订阅会话列表                      |
+| `GET`          | `/api/sessions/{session_id}`                            | 获取会话详情和事件列表                    |
+| `POST`         | `/api/sessions/{session_id}/chat`                       | SSE 流式对话                              |
+| `POST`         | `/api/sessions/{session_id}/stop`                       | 停止会话任务                              |
+| `POST`         | `/api/sessions/{session_id}/delete`                     | 删除会话                                  |
+| `POST`         | `/api/sessions/{session_id}/clear-unread-message-count` | 清空未读计数                              |
+| `GET`          | `/api/sessions/{session_id}/files`                      | 获取会话文件列表                          |
+| `POST`         | `/api/sessions/{session_id}/file`                       | 读取会话沙箱中的文件内容                  |
+| `POST`         | `/api/sessions/{session_id}/shell`                      | 读取会话沙箱中的 Shell 输出               |
+| `GET`          | `/api/sessions/{session_id}/traces`                     | 获取会话 Trace 列表                       |
+| `GET`          | `/api/sessions/{session_id}/traces/{trace_id}`          | 获取 Trace 详情                           |
+| `GET`          | `/api/sessions/{session_id}/trace-metrics`              | 获取会话 Trace 指标                       |
+| `WS`           | `/api/sessions/{session_id}/vnc`                        | 代理沙箱 VNC WebSocket                    |
 
 ## 本地开发
 

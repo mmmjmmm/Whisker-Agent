@@ -2170,7 +2170,7 @@ index 0000000..41183fd
 --- /dev/null
 +++ b/docs/agent-skills-implementation.md
 @@ -0,0 +1,1620 @@
-+# MoocManus Agent Skills 功能实现详解
++# WhiskerAgent Agent Skills 功能实现详解
 +
 +本文档整理 `feat/agent-skills` 分支在当前工作区中的 Skill 功能实现，内容只以当前分支相对 `main` 的有效业务代码为依据。本文明确排除测试代码、历史设计文档、计划文档、锁文件和仓库说明文件，不把未运行的设计稿内容写成已经实现的行为。文档覆盖 Skill 的总体目标、架构分层、领域模型、ZIP 解析、全局 Registry、对象存储、任务快照、沙箱同步、`load_skill` 工具、单 Agent 接入、Team Agent 接入、事件投影、管理接口、前端设置页、输入框显式引用、工具预览、错误边界和当前最小实现没有覆盖的范围。
 +
@@ -2649,7 +2649,7 @@ index 0000000..41183fd
 +
 +Runtime 一边面向模型上下文，一边面向沙箱文件系统。面向模型时，它提供轻量目录；面向沙箱时，它负责把 ZIP 变成一个实际目录。它不关心哪个 Agent 调用，也不关心调用发生在 React 还是 Team，只要名称在当前 Snapshot 中，它就能返回同一套加载结果。
 +
-+当 Agent 调用 `load_skill(name)` 时，Runtime 先按名称查找当前任务快照；如果不存在，抛出 `SkillNotFoundError`。如果存在，则调用 `_ensure_synced()`。同步过程会把 ZIP 上传到 `/home/ubuntu/.mooc-manus/skills/{skill_id}/bundle.zip`，再在同一 base 目录下解压到 `content/`，最后根据 `root_path` 返回真正的 Skill 根目录。
++当 Agent 调用 `load_skill(name)` 时，Runtime 先按名称查找当前任务快照；如果不存在，抛出 `SkillNotFoundError`。如果存在，则调用 `_ensure_synced()`。同步过程会把 ZIP 上传到 `/home/ubuntu/.whisker-manus/skills/{skill_id}/bundle.zip`，再在同一 base 目录下解压到 `content/`，最后根据 `root_path` 返回真正的 Skill 根目录。
 +
 +这里返回的是“Skill 根目录”，不是 ZIP 解压后的固定 `content` 目录。这个区别对嵌套包很重要：如果 `SKILL.md` 在 `demo/SKILL.md`，Agent 应该把相对路径解析到 `content/demo/`；如果 `SKILL.md` 在根目录，才解析到 `content/`。Runtime 把这个细节隐藏掉，Tool 只需要返回一个最终目录。
 +
@@ -2708,7 +2708,7 @@ index 0000000..41183fd
 +        if snapshot.bundle_bytes is None:
 +            raise SkillLoadError(f"Skill ZIP 不可用: {snapshot.name}")
 +
-+        base_dir = f"/home/ubuntu/.mooc-manus/skills/{snapshot.id}"
++        base_dir = f"/home/ubuntu/.whisker-manus/skills/{snapshot.id}"
 +        bundle_path = f"{base_dir}/bundle.zip"
 +        content_dir = f"{base_dir}/content"
 +        skill_dir = (
@@ -3533,7 +3533,7 @@ index 0000000..41183fd
 +
 +工具预览面板则新增 `SkillPreview`，展示 Skill 名称、加载状态和沙箱目录。它从 `tool.content` 中读取 `name` 与 `skill_dir`，如果 called 事件还没带 content，则从参数里回退读取 name。完整 `SKILL.md` 不在这里展示。
 +
-+沙箱目录是一个对高级用户有用的调试信息。它可以解释后续文件读取或 Shell 命令为什么会访问某个 `/home/ubuntu/.mooc-manus/skills/...` 路径，也能帮助确认资源包是否已经同步成功。
++沙箱目录是一个对高级用户有用的调试信息。它可以解释后续文件读取或 Shell 命令为什么会访问某个 `/home/ubuntu/.whisker-manus/skills/...` 路径，也能帮助确认资源包是否已经同步成功。
 +
 +### 工具识别源码走读
 +

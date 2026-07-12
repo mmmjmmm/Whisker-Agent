@@ -97,7 +97,7 @@ class SkillRuntime:
             if snapshot.bundle_bytes is None:
                 raise SkillLoadError(f"Skill ZIP 不可用: {snapshot.name}")
 
-            base_dir = f"/home/ubuntu/.mooc-manus/skills/{snapshot.id}"
+            base_dir = f"/home/ubuntu/.whisker-manus/skills/{snapshot.id}"
             bundle_path = f"{base_dir}/bundle.zip"
             content_dir = f"{base_dir}/content"
             skill_dir = (

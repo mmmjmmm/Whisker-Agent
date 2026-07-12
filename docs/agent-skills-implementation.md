@@ -1,4 +1,4 @@
-# MoocManus Agent Skills 功能实现详解
+# WhiskerAgent Agent Skills 功能实现详解
 
 本文档整理 `feat/agent-skills` 分支在当前工作区中的 Skill 功能实现，内容只以当前分支相对 `main` 的有效业务代码为依据。本文明确排除测试代码、历史设计文档、计划文档、锁文件和仓库说明文件，不把未运行的设计稿内容写成已经实现的行为。文档覆盖 Skill 的总体目标、架构分层、领域模型、ZIP 解析、全局 Registry、对象存储、任务快照、沙箱同步、`load_skill` 工具、单 Agent 接入、Team Agent 接入、事件投影、管理接口、前端设置页、输入框显式引用、工具预览、错误边界和当前最小实现没有覆盖的范围。
 
@@ -477,7 +477,7 @@ task_runner = AgentTaskRunner(
 
 Runtime 一边面向模型上下文，一边面向沙箱文件系统。面向模型时，它提供轻量目录；面向沙箱时，它负责把 ZIP 变成一个实际目录。它不关心哪个 Agent 调用，也不关心调用发生在 React 还是 Team，只要名称在当前 Snapshot 中，它就能返回同一套加载结果。
 
-当 Agent 调用 `load_skill(name)` 时，Runtime 先按名称查找当前任务快照；如果不存在，抛出 `SkillNotFoundError`。如果存在，则调用 `_ensure_synced()`。同步过程会把 ZIP 上传到 `/home/ubuntu/.mooc-manus/skills/{skill_id}/bundle.zip`，再在同一 base 目录下解压到 `content/`，最后根据 `root_path` 返回真正的 Skill 根目录。
+当 Agent 调用 `load_skill(name)` 时，Runtime 先按名称查找当前任务快照；如果不存在，抛出 `SkillNotFoundError`。如果存在，则调用 `_ensure_synced()`。同步过程会把 ZIP 上传到 `/home/ubuntu/.whisker-manus/skills/{skill_id}/bundle.zip`，再在同一 base 目录下解压到 `content/`，最后根据 `root_path` 返回真正的 Skill 根目录。
 
 这里返回的是“Skill 根目录”，不是 ZIP 解压后的固定 `content` 目录。这个区别对嵌套包很重要：如果 `SKILL.md` 在 `demo/SKILL.md`，Agent 应该把相对路径解析到 `content/demo/`；如果 `SKILL.md` 在根目录，才解析到 `content/`。Runtime 把这个细节隐藏掉，Tool 只需要返回一个最终目录。
 
@@ -536,7 +536,7 @@ async def _ensure_synced(self, snapshot: SkillSnapshot) -> str:
         if snapshot.bundle_bytes is None:
             raise SkillLoadError(f"Skill ZIP 不可用: {snapshot.name}")
 
-        base_dir = f"/home/ubuntu/.mooc-manus/skills/{snapshot.id}"
+        base_dir = f"/home/ubuntu/.whisker-manus/skills/{snapshot.id}"
         bundle_path = f"{base_dir}/bundle.zip"
         content_dir = f"{base_dir}/content"
         skill_dir = (
@@ -1217,28 +1217,28 @@ def get_agent_service(
 ```tsx
 const replaceSkill = (next: SkillListItem) => {
   setSkills((current) => {
-    const exists = current.some((skill) => skill.id === next.id)
+    const exists = current.some((skill) => skill.id === next.id);
     const updated = exists
-      ? current.map((skill) => skill.id === next.id ? next : skill)
-      : [...current, next]
-    return updated.sort((a, b) => a.name.localeCompare(b.name))
-  })
-}
+      ? current.map((skill) => (skill.id === next.id ? next : skill))
+      : [...current, next];
+    return updated.sort((a, b) => a.name.localeCompare(b.name));
+  });
+};
 
 const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  const file = event.target.files?.[0]
-  if (!file) return
-  setUploading(true)
+  const file = event.target.files?.[0];
+  if (!file) return;
+  setUploading(true);
   try {
-    replaceSkill(await skillApi.upload(file))
-    toast.success('Skill 已上传或覆盖')
+    replaceSkill(await skillApi.upload(file));
+    toast.success("Skill 已上传或覆盖");
   } catch (error) {
-    toast.error(error instanceof Error ? error.message : 'Skill 上传失败')
+    toast.error(error instanceof Error ? error.message : "Skill 上传失败");
   } finally {
-    setUploading(false)
-    event.target.value = ''
+    setUploading(false);
+    event.target.value = "";
   }
-}
+};
 ```
 
 启停和删除都先改 UI，再调用接口。失败时恢复原对象，避免界面与服务端状态长期不一致。
@@ -1247,26 +1247,26 @@ const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
 
 ```tsx
 const handleToggle = async (skill: SkillListItem, enabled: boolean) => {
-  replaceSkill({...skill, enabled})
+  replaceSkill({ ...skill, enabled });
   try {
-    replaceSkill(await skillApi.setEnabled(skill.id, enabled))
-    toast.success(`${skill.name} 已${enabled ? '启用' : '禁用'}`)
+    replaceSkill(await skillApi.setEnabled(skill.id, enabled));
+    toast.success(`${skill.name} 已${enabled ? "启用" : "禁用"}`);
   } catch (error) {
-    replaceSkill(skill)
-    toast.error(error instanceof Error ? error.message : '操作失败')
+    replaceSkill(skill);
+    toast.error(error instanceof Error ? error.message : "操作失败");
   }
-}
+};
 
 const handleDelete = async (skill: SkillListItem) => {
-  setSkills((current) => current.filter((item) => item.id !== skill.id))
+  setSkills((current) => current.filter((item) => item.id !== skill.id));
   try {
-    await skillApi.delete(skill.id)
-    toast.success(`已删除 Skill「${skill.name}」`)
+    await skillApi.delete(skill.id);
+    toast.success(`已删除 Skill「${skill.name}」`);
   } catch (error) {
-    replaceSkill(skill)
-    toast.error(error instanceof Error ? error.message : '删除失败')
+    replaceSkill(skill);
+    toast.error(error instanceof Error ? error.message : "删除失败");
   }
-}
+};
 ```
 
 `ManusSettings` 只新增一个菜单项和一个条件渲染分支，没有把 Skill 管理耦合到通用配置的保存按钮。
@@ -1302,16 +1302,16 @@ const SETTING_MENUS = [
 `getSkillMention()` 只识别行首或空白后的 `$xxx`，并且不跨空白。它返回当前 mention 的起始位置和小写 query。
 
 ```tsx
-type SkillMention = {start: number; query: string}
+type SkillMention = { start: number; query: string };
 
 function getSkillMention(value: string, cursor: number): SkillMention | null {
-  const prefix = value.slice(0, cursor)
-  const match = prefix.match(/(?:^|\s)\$([^\s$]*)$/)
-  if (!match) return null
+  const prefix = value.slice(0, cursor);
+  const match = prefix.match(/(?:^|\s)\$([^\s$]*)$/);
+  if (!match) return null;
   return {
     start: cursor - match[1].length - 1,
     query: match[1].toLowerCase(),
-  }
+  };
 }
 ```
 
@@ -1322,12 +1322,14 @@ function getSkillMention(value: string, cursor: number): SkillMention | null {
 ```tsx
 const matchingSkills = mention
   ? skills.filter((skill) => {
-      if (!skill.enabled) return false
-      const query = mention.query
-      return skill.name.toLowerCase().includes(query)
-        || skill.description.toLowerCase().includes(query)
+      if (!skill.enabled) return false;
+      const query = mention.query;
+      return (
+        skill.name.toLowerCase().includes(query) ||
+        skill.description.toLowerCase().includes(query)
+      );
     })
-  : []
+  : [];
 ```
 
 插入时，前端只替换当前 mention 片段为 `$name `。发送时依然走原来的 `onSend(trimmedMessage, files)`。
@@ -1336,21 +1338,20 @@ const matchingSkills = mention
 
 ```tsx
 const insertSkill = (skill: SkillListItem) => {
-  if (!mention) return
-  const cursor = textareaRef.current?.selectionStart ?? inputValue.length
-  const inserted = `$${skill.name} `
-  const next = inputValue.slice(0, mention.start)
-    + inserted
-    + inputValue.slice(cursor)
-  const nextCursor = mention.start + inserted.length
-  setInputValue(next)
-  onInputValueChange?.(next)
-  setMention(null)
+  if (!mention) return;
+  const cursor = textareaRef.current?.selectionStart ?? inputValue.length;
+  const inserted = `$${skill.name} `;
+  const next =
+    inputValue.slice(0, mention.start) + inserted + inputValue.slice(cursor);
+  const nextCursor = mention.start + inserted.length;
+  setInputValue(next);
+  onInputValueChange?.(next);
+  setMention(null);
   requestAnimationFrame(() => {
-    textareaRef.current?.focus()
-    textareaRef.current?.setSelectionRange(nextCursor, nextCursor)
-  })
-}
+    textareaRef.current?.focus();
+    textareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+  });
+};
 ```
 
 ## 二十、前端工具时间线把 load_skill 识别为 Skill 工具
@@ -1361,7 +1362,7 @@ const insertSkill = (skill: SkillListItem) => {
 
 工具预览面板则新增 `SkillPreview`，展示 Skill 名称、加载状态和沙箱目录。它从 `tool.content` 中读取 `name` 与 `skill_dir`，如果 called 事件还没带 content，则从参数里回退读取 name。完整 `SKILL.md` 不在这里展示。
 
-沙箱目录是一个对高级用户有用的调试信息。它可以解释后续文件读取或 Shell 命令为什么会访问某个 `/home/ubuntu/.mooc-manus/skills/...` 路径，也能帮助确认资源包是否已经同步成功。
+沙箱目录是一个对高级用户有用的调试信息。它可以解释后续文件读取或 Shell 命令为什么会访问某个 `/home/ubuntu/.whisker-manus/skills/...` 路径，也能帮助确认资源包是否已经同步成功。
 
 ### 工具识别源码走读
 
@@ -1402,25 +1403,25 @@ export function getFriendlyToolLabel(data: ToolEvent | null | undefined): string
 
 ```tsx
 function SkillPreview({ tool }: { tool: ToolEvent }) {
-  const content = getToolContent(tool)
-  const name = typeof content?.name === 'string'
-    ? content.name
-    : getArg(tool.args, 'name')
-  const skillDir = typeof content?.skill_dir === 'string'
-    ? content.skill_dir
-    : ''
+  const content = getToolContent(tool);
+  const name =
+    typeof content?.name === "string"
+      ? content.name
+      : getArg(tool.args, "name");
+  const skillDir =
+    typeof content?.skill_dir === "string" ? content.skill_dir : "";
 
   return (
     <div className="flex h-full flex-col gap-4 p-4">
       <div className="rounded-lg border bg-gray-50 p-4 text-sm">
         <div>
           <span className="text-gray-500">Skill：</span>
-          <span className="text-gray-800">{name || '未知'}</span>
+          <span className="text-gray-800">{name || "未知"}</span>
         </div>
         <div>
           <span className="text-gray-500">状态：</span>
           <span className="text-gray-800">
-            {tool.status === 'called' ? '已加载' : '正在加载'}
+            {tool.status === "called" ? "已加载" : "正在加载"}
           </span>
         </div>
         {skillDir && (
@@ -1433,7 +1434,7 @@ function SkillPreview({ tool }: { tool: ToolEvent }) {
         )}
       </div>
     </div>
-  )
+  );
 }
 ```
 

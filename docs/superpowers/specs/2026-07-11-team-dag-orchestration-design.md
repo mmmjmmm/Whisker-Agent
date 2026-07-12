@@ -4,12 +4,12 @@
 
 **日期：** 2026-07-11
 
-**适用仓库：** `mooc-manus`
+**适用仓库：** `whisker-manus`
 **首期范围：** 显式触发的本地多 Agent 动态 DAG 编排
 
 ## 1. 决策摘要
 
-mooc-manus 将新增一个与现有 `PlannerReActFlow` 并列的 `TeamFlow`。用户通过聊天请求中的 `mode="team"` 显式启用它，默认 `mode="react"` 的行为保持不变。
+whisker-manus 将新增一个与现有 `PlannerReActFlow` 并列的 `TeamFlow`。用户通过聊天请求中的 `mode="team"` 显式启用它，默认 `mode="react"` 的行为保持不变。
 
 首期采用以下架构：
 
@@ -85,15 +85,15 @@ Session route
 
 ### 4.1 主流编排模式
 
-| 模式 | 工作方式 | 优点 | 风险 | 本项目判断 |
-|---|---|---|---|---|
-| 顺序流水线 | Agent 依次处理前一 Agent 输出 | 简单、确定 | 无法利用独立任务并行 | 当前已有近似能力 |
-| Router | 分类后路由到一个或多个专家 | 轻量、易控 | 类别通常需要预定义 | 适合未来自动模式选择 |
-| Supervisor / Agents-as-Tools | 中心 Agent 调用子 Agent | 上下文隔离、委派灵活 | 难严格保证 DAG 和调度规则 | 参考 Agent 边界 |
-| Orchestrator-Workers | 中心规划并委派并行 Worker | 适合动态可拆分任务 | 中心协调成本与 token 增长 | 首期核心模式 |
-| Graph / Workflow | 节点按依赖、分支和汇合运行 | 并发和错误传播清晰 | 状态模型更复杂 | 首期运行模型 |
-| Handoff / Swarm / Group Chat | Agent 自主转交控制或共享对话 | 对话分流灵活 | 路径难预测、上下文膨胀 | 首期不采用 |
-| Evaluator-Optimizer | 生成与评估循环 | 可提升质量 | 延迟、成本和无限循环风险 | 首期不采用 |
+| 模式                         | 工作方式                      | 优点                 | 风险                      | 本项目判断           |
+| ---------------------------- | ----------------------------- | -------------------- | ------------------------- | -------------------- |
+| 顺序流水线                   | Agent 依次处理前一 Agent 输出 | 简单、确定           | 无法利用独立任务并行      | 当前已有近似能力     |
+| Router                       | 分类后路由到一个或多个专家    | 轻量、易控           | 类别通常需要预定义        | 适合未来自动模式选择 |
+| Supervisor / Agents-as-Tools | 中心 Agent 调用子 Agent       | 上下文隔离、委派灵活 | 难严格保证 DAG 和调度规则 | 参考 Agent 边界      |
+| Orchestrator-Workers         | 中心规划并委派并行 Worker     | 适合动态可拆分任务   | 中心协调成本与 token 增长 | 首期核心模式         |
+| Graph / Workflow             | 节点按依赖、分支和汇合运行    | 并发和错误传播清晰   | 状态模型更复杂            | 首期运行模型         |
+| Handoff / Swarm / Group Chat | Agent 自主转交控制或共享对话  | 对话分流灵活         | 路径难预测、上下文膨胀    | 首期不采用           |
+| Evaluator-Optimizer          | 生成与评估循环                | 可提升质量           | 延迟、成本和无限循环风险  | 首期不采用           |
 
 Anthropic 的生产 Research 系统采用中心 Orchestrator 和并行 Subagents，并强调根据任务复杂度限制 Agent 数量。OpenAI Agents SDK 同时支持 LLM 决定委派和代码控制编排，并明确把结构化输出、顺序链、评价循环和 `asyncio` 并行列为代码编排方式。
 
@@ -101,15 +101,15 @@ Google Research 对 180 种 Agent 配置的研究显示，多 Agent 对可并行
 
 ### 4.2 主流框架比较
 
-| 框架 | 主要能力 | 对 mooc-manus 的判断 |
-|---|---|---|
-| OpenAI Agents SDK | Agents-as-Tools、Handoff、代码编排、Guardrail、Tracing | 借鉴边界；接入会替换现有 Agent 循环 |
-| LangGraph | Graph、并行、Checkpoint、HITL、恢复 | Phase 2 需要可靠恢复时优先评估 |
-| Google ADK | 顺序/并行/循环、协作工作流、A2A | 会重塑当前 Runner 和 Event 层 |
-| Microsoft Agent Framework | Sequential、Concurrent、Handoff、Group Chat、Magentic、Graph | 企业能力完整，首期接入范围过大 |
-| CrewAI | Sequential、Hierarchical Manager、角色化 Crew | 原型快，但 Crew 生命周期与现有 Flow 重复 |
-| Pydantic AI | 强类型委派、程序化 Handoff、Graph、Usage Limits | 借鉴强类型结果和用量限制 |
-| Strands Agents | Graph、Swarm、Workflow、A2A | 模式覆盖全面，但会形成第二套运行时 |
+| 框架                      | 主要能力                                                     | 对 whisker-manus 的判断                  |
+| ------------------------- | ------------------------------------------------------------ | ---------------------------------------- |
+| OpenAI Agents SDK         | Agents-as-Tools、Handoff、代码编排、Guardrail、Tracing       | 借鉴边界；接入会替换现有 Agent 循环      |
+| LangGraph                 | Graph、并行、Checkpoint、HITL、恢复                          | Phase 2 需要可靠恢复时优先评估           |
+| Google ADK                | 顺序/并行/循环、协作工作流、A2A                              | 会重塑当前 Runner 和 Event 层            |
+| Microsoft Agent Framework | Sequential、Concurrent、Handoff、Group Chat、Magentic、Graph | 企业能力完整，首期接入范围过大           |
+| CrewAI                    | Sequential、Hierarchical Manager、角色化 Crew                | 原型快，但 Crew 生命周期与现有 Flow 重复 |
+| Pydantic AI               | 强类型委派、程序化 Handoff、Graph、Usage Limits              | 借鉴强类型结果和用量限制                 |
+| Strands Agents            | Graph、Swarm、Workflow、A2A                                  | 模式覆盖全面，但会形成第二套运行时       |
 
 ### 4.3 框架决策
 
@@ -439,16 +439,16 @@ team_max_worker_iterations = 20
 
 ### 10.1 Capability 映射
 
-| Capability | 暴露的工具 | 调度策略 |
-|---|---|---|
-| analysis | 无 | 并行安全 |
-| search | `search_web` | 并行安全 |
-| file_read | `read_file`、`search_in_file`、`find_files` | 并行安全 |
-| browser | 当前全部 BrowserTool 函数 | 独占 |
-| file_write | `read_file`、`write_file`、`replace_in_file` | 独占 |
-| shell | 当前全部 ShellTool 函数 | 独占 |
-| mcp | 当前注册的 MCP 动态工具 | 独占 |
-| a2a | Agent Card 查询和远程 Agent 调用 | 独占 |
+| Capability | 暴露的工具                                   | 调度策略 |
+| ---------- | -------------------------------------------- | -------- |
+| analysis   | 无                                           | 并行安全 |
+| search     | `search_web`                                 | 并行安全 |
+| file_read  | `read_file`、`search_in_file`、`find_files`  | 并行安全 |
+| browser    | 当前全部 BrowserTool 函数                    | 独占     |
+| file_write | `read_file`、`write_file`、`replace_in_file` | 独占     |
+| shell      | 当前全部 ShellTool 函数                      | 独占     |
+| mcp        | 当前注册的 MCP 动态工具                      | 独占     |
+| a2a        | Agent Card 查询和远程 Agent 调用             | 独占     |
 
 ### 10.2 独占原因
 
@@ -745,17 +745,17 @@ Agent 和 Orchestrator 测试使用：
 
 ## 18. 主要风险与缓解
 
-| 风险 | 影响 | 缓解 |
-|---|---|---|
-| Planner 生成重复或错误依赖 | 图无法执行 | 确定性校验并允许一次重规划 |
-| Worker 越权调用工具 | 安全和副作用风险 | Schema 过滤加执行前二次鉴权 |
-| 浏览器或沙箱状态竞争 | 页面、文件或进程相互污染 | 有状态和写任务首期全局独占 |
-| 多 Agent token 快速增长 | 成本失控 | 最多 5 节点、3 并发、20 次 Worker 迭代 |
-| Worker Memory 污染 | 结果互相干扰 | 每节点独立临时 Memory |
-| 并发事件乱序 | UI 错配、刷新不一致 | 内存 Queue、发布确认和单一 Event Sink |
-| Worker 局部失败 | 整体结果缺失 | 一次重试、依赖跳过、部分完成汇总 |
-| 进程中断 | 在途 DAG 丢失或永久显示运行中 | 下次读取时收敛为失败，后续引入 Checkpoint |
-| 自由用户输入改变 DAG | 运行状态不可预测 | Team 运行中禁止追加消息 |
+| 风险                       | 影响                          | 缓解                                      |
+| -------------------------- | ----------------------------- | ----------------------------------------- |
+| Planner 生成重复或错误依赖 | 图无法执行                    | 确定性校验并允许一次重规划                |
+| Worker 越权调用工具        | 安全和副作用风险              | Schema 过滤加执行前二次鉴权               |
+| 浏览器或沙箱状态竞争       | 页面、文件或进程相互污染      | 有状态和写任务首期全局独占                |
+| 多 Agent token 快速增长    | 成本失控                      | 最多 5 节点、3 并发、20 次 Worker 迭代    |
+| Worker Memory 污染         | 结果互相干扰                  | 每节点独立临时 Memory                     |
+| 并发事件乱序               | UI 错配、刷新不一致           | 内存 Queue、发布确认和单一 Event Sink     |
+| Worker 局部失败            | 整体结果缺失                  | 一次重试、依赖跳过、部分完成汇总          |
+| 进程中断                   | 在途 DAG 丢失或永久显示运行中 | 下次读取时收敛为失败，后续引入 Checkpoint |
+| 自由用户输入改变 DAG       | 运行状态不可预测              | Team 运行中禁止追加消息                   |
 
 ## 19. 后续阶段
 

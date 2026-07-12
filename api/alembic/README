@@ -1,6 +1,6 @@
 # Alembic 数据库迁移
 
-`api/alembic/` 存放 MoocManus API 的数据库迁移脚本。API 服务启动时会自动执行 `alembic upgrade head`，因此正常部署不需要手动建表。
+`api/alembic/` 存放 WhiskerAgent API 的数据库迁移脚本。API 服务启动时会自动执行 `alembic upgrade head`，因此正常部署不需要手动建表。
 
 ## 目录
 

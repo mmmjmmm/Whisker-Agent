@@ -1,4 +1,4 @@
-# MoocManus 多 Agent DAG 编排实现详解
+# WhiskerAgent 多 Agent DAG 编排实现详解
 
 本文档整理 `feature/team-dag-orchestration` 分支在当前工作区中的实际代码实现，内容以 `main` 到当前工作区的源码差异为依据，不以历史设计稿、旧测试或已经删除的中间方案为依据。文档覆盖多 Agent 的总体思想、架构设计、领域模型、DAG 规划、并发调度、工具隔离、事件流转、状态持久化、前端展示、取消与错误处理，并按照一次真实请求的执行顺序进行代码走读。当前工作区相对分支 HEAD 仍有三处未提交业务修改，分别是 Team Worker 默认迭代上限调整为 50、整张图失败时汇总每个任务的具体错误，以及只有真正进入运行态的任务才出现在对话区，因此本文描述的是当前工作区行为，而不只是最后一次提交的行为。
 
@@ -1790,10 +1790,7 @@ Team Task 的 `task.error` 没有被转换进 StepEvent 数据模型，因此失
 后端七种任务状态先被压缩到既有 UI 的三种执行状态。retrying 对用户仍表示正在运行，skipped 与 cancelled 暂时都映射为 failed。这个映射同时被对话 Step 和底部 PlanStep 使用，所以两处不会对同一任务给出相反状态。
 
 ```typescript
-const TEAM_TASK_STATUS: Record<
-  TeamTask["status"],
-  ExecutionStatus
-> = {
+const TEAM_TASK_STATUS: Record<TeamTask["status"], ExecutionStatus> = {
   pending: "pending",
   running: "running",
   retrying: "running",
@@ -1817,11 +1814,7 @@ export function teamTaskStatusToExecutionStatus(
 ```typescript
 const teamStepIndexes = new Map<string, number>();
 
-const upsertTeamStep = (
-  graphId: string,
-  task: TeamTask,
-  create: boolean,
-) => {
+const upsertTeamStep = (graphId: string, task: TeamTask, create: boolean) => {
   const key = `${graphId}:${task.id}`;
   const data: StepEvent = {
     id: key,
@@ -1936,10 +1929,7 @@ export function getLatestTeamPlanFromEvents(
   let steps: PlanStep[] | null = null;
 
   for (const event of events) {
-    if (
-      event.type === "message" &&
-      event.data.role === "user"
-    ) {
+    if (event.type === "message" && event.data.role === "user") {
       graphId = null;
       steps = null;
       continue;
@@ -1955,19 +1945,13 @@ export function getLatestTeamPlanFromEvents(
       continue;
     }
 
-    if (
-      event.type === "task" &&
-      steps &&
-      event.data.graph_id === graphId
-    ) {
+    if (event.type === "task" && steps && event.data.graph_id === graphId) {
       steps = steps.map((step) =>
         step.id === event.data.task.id
           ? {
               id: event.data.task.id,
               description: event.data.task.description,
-              status: teamTaskStatusToExecutionStatus(
-                event.data.task.status,
-              ),
+              status: teamTaskStatusToExecutionStatus(event.data.task.status),
             }
           : step,
       );
@@ -1984,26 +1968,22 @@ PlanPanel 收到的是已经投影好的 PlanStep，不认识 graph id、depende
 
 ```tsx
 const completedCount = steps.filter(
-  (step) => step.status === "completed"
+  (step) => step.status === "completed",
 ).length;
 const totalCount = steps.length;
 
 <span className="text-xs text-gray-500">
   {completedCount} / {totalCount}
-</span>
+</span>;
 
-{steps.map((step) => (
-  <div key={step.id} className="flex items-center">
-    {step.status === "completed" ? (
-      <Check size={16} />
-    ) : (
-      <Clock size={16} />
-    )}
-    <div className="text-sm truncate">
-      {step.description}
+{
+  steps.map((step) => (
+    <div key={step.id} className="flex items-center">
+      {step.status === "completed" ? <Check size={16} /> : <Clock size={16} />}
+      <div className="text-sm truncate">{step.description}</div>
     </div>
-  </div>
-))}
+  ));
+}
 ```
 
 底部面板没有把 pending 任务移除，因为它的目的就是从初始图展示完整总量。完成计数也不把 failed 当作“已处理”，因此整图结束但有失败时可能显示 2/3 而不是 3/3。这个行为与用户关注的“完成数”一致，但若未来要展示“已终态数”，需要单独调整计数语义。
@@ -2062,19 +2042,13 @@ function StepBlock({ stepItem, onToolClick }: Props) {
 
   return (
     <div className="flex flex-col mt-3">
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setExpanded(!expanded)}
-      >
+      <div role="button" tabIndex={0} onClick={() => setExpanded(!expanded)}>
         <div className="flex flex-row gap-2">
           <div className="w-4 h-4 border rounded-[15px] bg-gray-300">
             <CheckIcon className="text-white" size={10} />
           </div>
           <div>{data.description}</div>
-          <ChevronDown
-            className={cn(expanded && "rotate-180")}
-          />
+          <ChevronDown className={cn(expanded && "rotate-180")} />
         </div>
       </div>
 
@@ -2087,11 +2061,7 @@ function StepBlock({ stepItem, onToolClick }: Props) {
             >
               <ToolUse
                 data={tool}
-                onClick={
-                  onToolClick
-                    ? () => onToolClick(tool)
-                    : undefined
-                }
+                onClick={onToolClick ? () => onToolClick(tool) : undefined}
               />
             </ToolRow>
           ))}
@@ -2127,10 +2097,7 @@ function StepBlock({ stepItem, onToolClick }: Props) {
 ```tsx
 const [mode, setMode] = useState<AgentMode>("react");
 
-const handleSend = async (
-  message: string,
-  files: FileInfo[],
-) => {
+const handleSend = async (message: string, files: FileInfo[]) => {
   const session = await sessionApi.createSession();
   const sessionId = session.session_id;
   const attachments = files.map((file) => file.id);
@@ -2163,24 +2130,18 @@ setSessionData({
 
 ```tsx
 const persistedMode = useMemo(() => {
-  for (
-    let index = events.length - 1;
-    index >= 0;
-    index--
-  ) {
+  for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
-    if (
-      event.type === "message" &&
-      event.data.role === "user"
-    ) {
+    if (event.type === "message" && event.data.role === "user") {
       return event.data.agent_mode ?? null;
     }
   }
   return null;
 }, [events]);
 
-const [modeOverride, setModeOverride] =
-  useState<AgentMode | null>(initialMode ?? null);
+const [modeOverride, setModeOverride] = useState<AgentMode | null>(
+  initialMode ?? null,
+);
 const mode = modeOverride ?? persistedMode ?? "react";
 ```
 
@@ -2193,34 +2154,37 @@ const teamLocked = isRunning && mode === "team";
   value={inputValue}
   onChange={handleInputChange}
   disabled={sending || disabled || teamLocked}
-/>
+/>;
 
-{([[
-  "react",
-  "单 Agent",
-], [
-  "team",
-  "多 Agent",
-]] as const).map(([value, label]) => (
-  <Button
-    key={value}
-    disabled={isRunning || sending || disabled}
-    onClick={() => onModeChange(value)}
-    aria-pressed={mode === value}
-  >
-    {label}
-  </Button>
-))}
+{
+  (
+    [
+      ["react", "单 Agent"],
+      ["team", "多 Agent"],
+    ] as const
+  ).map(([value, label]) => (
+    <Button
+      key={value}
+      disabled={isRunning || sending || disabled}
+      onClick={() => onModeChange(value)}
+      aria-pressed={mode === value}
+    >
+      {label}
+    </Button>
+  ));
+}
 
-{isRunning ? (
-  <Button onClick={onStop} aria-label="停止任务">
-    <Pause className="size-4" />
-  </Button>
-) : (
-  <Button onClick={handleSend} aria-label="发送消息">
-    <ArrowUp />
-  </Button>
-)}
+{
+  isRunning ? (
+    <Button onClick={onStop} aria-label="停止任务">
+      <Pause className="size-4" />
+    </Button>
+  ) : (
+    <Button onClick={handleSend} aria-label="发送消息">
+      <ArrowUp />
+    </Button>
+  );
+}
 ```
 
 这里的 UI 锁不是唯一保护，后端仍有 409 校验，因此用户绕过 disabled 也不能向 running Team 插入消息。React running 时 textarea 没有因 teamLocked 禁用，保留原有交互，但 mode 切换按钮依然锁住，已经运行的 Flow 不会中途变种。停止按钮直接调用 SessionDetailView.handleStop，与当前输入内容无关。
@@ -2230,38 +2194,26 @@ const teamLocked = isRunning && mode === "team";
 ```typescript
 if (
   evToAppend.type === "task_graph" &&
-  (
-    evToAppend.data.graph.status === "pending" ||
-    evToAppend.data.graph.status === "running"
-  )
+  (evToAppend.data.graph.status === "pending" ||
+    evToAppend.data.graph.status === "running")
 ) {
-  setSession((prev) =>
-    prev ? { ...prev, status: "running" } : null
-  );
+  setSession((prev) => (prev ? { ...prev, status: "running" } : null));
 }
 
 if (
   evToAppend.type === "task" &&
-  (
-    evToAppend.data.task.status === "running" ||
-    evToAppend.data.task.status === "retrying"
-  )
+  (evToAppend.data.task.status === "running" ||
+    evToAppend.data.task.status === "retrying")
 ) {
-  setSession((prev) =>
-    prev ? { ...prev, status: "running" } : null
-  );
+  setSession((prev) => (prev ? { ...prev, status: "running" } : null));
 }
 
 if (evToAppend.type === "done") {
-  setSession((prev) =>
-    prev ? { ...prev, status: "completed" } : null
-  );
+  setSession((prev) => (prev ? { ...prev, status: "completed" } : null));
 }
 
 if (evToAppend.type === "error") {
-  setSession((prev) =>
-    prev ? { ...prev, status: "completed" } : null
-  );
+  setSession((prev) => (prev ? { ...prev, status: "completed" } : null));
 }
 ```
 
@@ -2270,10 +2222,8 @@ partial 图在 TaskGraphEvent 中不是 running，但此前 Session 已经处于
 Hook 为两个 SSE 所有者分别保存 cleanup ref，并用 `isSendMessageRef` 防止状态 effect 在发送期间启动 empty stream。页面进入已有未完成 Session 时，empty stream 只提交 event_id；用户主动发送时先 stopEmptyStream，再清理旧 message stream。两个连接不会因为共享一个 ref 而互相覆盖 cleanup 函数。
 
 ```typescript
-const emptyStreamCleanupRef =
-  useRef<(() => void) | null>(null);
-const messageStreamCleanupRef =
-  useRef<(() => void) | null>(null);
+const emptyStreamCleanupRef = useRef<(() => void) | null>(null);
+const messageStreamCleanupRef = useRef<(() => void) | null>(null);
 const isSendMessageRef = useRef(false);
 const lastEventIdRef = useRef<string | null>(null);
 
@@ -2306,11 +2256,7 @@ const startEmptyStream = useCallback(() => {
 
 ```typescript
 const sendMessage = useCallback(
-  async (
-    message: string,
-    attachmentIds: string[],
-    mode: AgentMode,
-  ) => {
+  async (message: string, attachmentIds: string[], mode: AgentMode) => {
     if (!sessionId) return;
     stopEmptyStream();
 
@@ -2321,9 +2267,7 @@ const sendMessage = useCallback(
 
     isSendMessageRef.current = true;
     setStreaming(true);
-    setSession((prev) =>
-      prev ? { ...prev, status: "running" } : null
-    );
+    setSession((prev) => (prev ? { ...prev, status: "running" } : null));
 
     const onEvent = (ev: SSEEventData) => {
       appendEvent(ev);
@@ -2372,9 +2316,7 @@ ErrorEvent 不是 DoneEvent，因此 onEvent 不会在这里主动 cleanup，但
 最后事件 id在每次 append 时更新，并在 refresh 历史数据后从最后一条事件恢复。empty stream 把它放进 event_id，AgentService 再用它作为 output stream 的 `start_id`，因此只是续读，不是重跑 Flow。这个游标属于事件传输层，与 TeamTask.attempt 或 graph id没有计数关系。
 
 ```typescript
-const eventId = (
-  evToAppend.data as { event_id?: string }
-)?.event_id;
+const eventId = (evToAppend.data as { event_id?: string })?.event_id;
 if (eventId) {
   lastEventIdRef.current = eventId;
 }
