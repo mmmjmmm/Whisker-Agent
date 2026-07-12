@@ -6,6 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { PanelLeftIcon } from "lucide-react"
 
 import { useIsMobile } from "@/hooks/use-mobile"
+import { getNextResizableWidth, clampPanelSize } from "@/lib/ui-layout"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,15 +28,21 @@ import {
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+const DEFAULT_SIDEBAR_WIDTH = 300
+const MIN_SIDEBAR_WIDTH = 240
+const MAX_SIDEBAR_WIDTH = 480
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
   setOpen: (open: boolean) => void
+  sidebarWidth: number
+  setSidebarWidth: (width: number) => void
+  minSidebarWidth: number
+  maxSidebarWidth: number
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
@@ -55,6 +62,9 @@ function useSidebar() {
 
 function SidebarProvider({
   defaultOpen = true,
+  defaultWidth = DEFAULT_SIDEBAR_WIDTH,
+  minWidth = MIN_SIDEBAR_WIDTH,
+  maxWidth = MAX_SIDEBAR_WIDTH,
   open: openProp,
   onOpenChange: setOpenProp,
   className,
@@ -63,11 +73,20 @@ function SidebarProvider({
   ...props
 }: React.ComponentProps<"div"> & {
   defaultOpen?: boolean
+  defaultWidth?: number
+  minWidth?: number
+  maxWidth?: number
   open?: boolean
   onOpenChange?: (open: boolean) => void
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const [sidebarWidth, setSidebarWidthState] = React.useState(() =>
+    clampPanelSize(defaultWidth, minWidth, maxWidth)
+  )
+  const setSidebarWidth = React.useCallback((width: number) => {
+    setSidebarWidthState(clampPanelSize(width, minWidth, maxWidth))
+  }, [minWidth, maxWidth])
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -118,12 +137,28 @@ function SidebarProvider({
       state,
       open,
       setOpen,
+      sidebarWidth,
+      setSidebarWidth,
+      minSidebarWidth: minWidth,
+      maxSidebarWidth: maxWidth,
       isMobile,
       openMobile,
       setOpenMobile,
       toggleSidebar,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [
+      state,
+      open,
+      setOpen,
+      sidebarWidth,
+      setSidebarWidth,
+      minWidth,
+      maxWidth,
+      isMobile,
+      openMobile,
+      setOpenMobile,
+      toggleSidebar,
+    ]
   )
 
   return (
@@ -133,7 +168,7 @@ function SidebarProvider({
           data-slot="sidebar-wrapper"
           style={
             {
-              "--sidebar-width": SIDEBAR_WIDTH,
+              "--sidebar-width": `${sidebarWidth}px`,
               "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
               ...style,
             } as React.CSSProperties
@@ -163,7 +198,55 @@ function Sidebar({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const {
+    isMobile,
+    state,
+    openMobile,
+    setOpenMobile,
+    setSidebarWidth,
+    minSidebarWidth,
+    maxSidebarWidth,
+  } = useSidebar()
+
+  const handleResizePointerDown = React.useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (state !== "expanded") return
+    event.preventDefault()
+
+    const target = event.currentTarget
+    const pointerId = event.pointerId
+    target.setPointerCapture?.(pointerId)
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      setSidebarWidth(
+        getNextResizableWidth({
+          side,
+          pointerX: moveEvent.clientX,
+          viewportWidth: window.innerWidth,
+          min: minSidebarWidth,
+          max: maxSidebarWidth,
+        })
+      )
+    }
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("pointerup", cleanup)
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      try {
+        target.releasePointerCapture?.(pointerId)
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
+    }
+
+    window.addEventListener("pointermove", handlePointerMove)
+    window.addEventListener("pointerup", cleanup)
+  }, [maxSidebarWidth, minSidebarWidth, setSidebarWidth, side, state])
 
   if (collapsible === "none") {
     return (
@@ -248,6 +331,20 @@ function Sidebar({
         >
           {children}
         </div>
+        {state === "expanded" && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整左侧面板宽度"
+            onPointerDown={handleResizePointerDown}
+            className={cn(
+              "absolute inset-y-0 z-30 hidden w-2 cursor-col-resize md:block",
+              side === "left" ? "-right-1" : "-left-1"
+            )}
+          >
+            <div className="mx-auto h-full w-px bg-transparent transition-colors hover:bg-gray-300" />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -606,10 +703,7 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean
 }) {
-  // Random width between 50 to 90%.
-  const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`
-  }, [])
+  const width = "70%"
 
   return (
     <div

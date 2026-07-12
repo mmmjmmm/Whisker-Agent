@@ -25,14 +25,7 @@ export default function RootLayout(
     <html lang="zh-CN" suppressHydrationWarning>
     <body className="h-screen overflow-hidden">
     <SessionsProvider>
-      <SidebarProvider
-        style={{
-          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-          // @ts-expect-error
-          '--sidebar-width': '300px',
-          '--sidebar-width-icon': '300px',
-        }}
-      >
+      <SidebarProvider defaultWidth={300}>
         {/* 左侧的面板 */}
         <LeftPanel/>
         {/* 右侧的内容 */}
