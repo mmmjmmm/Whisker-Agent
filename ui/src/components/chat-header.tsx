@@ -13,8 +13,12 @@ export function ChatHeader() {
       <div className="flex items-center gap-2">
         {/* 面板操作按钮: 关闭面板&移动端下会显示 */}
         {(!open || isMobile) && <SidebarTrigger className="cursor-pointer"/>}
-        {/* Logo占位符 */}
-        <Link href="/" className="block bg-white w-[80px] h-9 rounded-md"/>
+        {/* 品牌标记 */}
+        <Link
+          href="/"
+          aria-label="返回首页"
+          className="runner-brand-mark block size-10"
+        />
       </div>
       {/* 右侧设置模态窗 */}
       <ManusSettings/>

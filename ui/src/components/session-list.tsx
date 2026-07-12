@@ -63,10 +63,10 @@ export function SessionList() {
             key={i}
             className="flex items-center gap-2 p-2 animate-pulse"
           >
-            <div className="size-8 rounded-full bg-muted"/>
+            <div className="size-8 rounded-sm bg-muted"/>
             <div className="flex-1 space-y-1.5">
-              <div className="h-3.5 bg-muted rounded w-3/4"/>
-              <div className="h-3 bg-muted rounded w-1/2"/>
+              <div className="h-3.5 bg-muted rounded-sm w-3/4"/>
+              <div className="h-3 bg-muted rounded-sm w-1/2"/>
             </div>
           </div>
         ))}
@@ -80,7 +80,7 @@ export function SessionList() {
       <div className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
         <p>加载失败</p>
         <button
-          className="text-primary underline underline-offset-4 cursor-pointer"
+          className="text-emphasis underline underline-offset-4 cursor-pointer"
           onClick={refresh}
         >
           重试
@@ -121,4 +121,3 @@ export function SessionList() {
     </>
   )
 }
-

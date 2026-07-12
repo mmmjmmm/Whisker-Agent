@@ -238,7 +238,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
     }
 
     return (
-    <div className={cn('flex flex-col bg-white w-full rounded-2xl py-3 border', className)}>
+    <div className={cn('runner-command-surface flex w-full flex-col py-3', className)}>
       {/* 顶部的文件列表 */}
       {files.length > 0 && (
         <div className="w-full px-4 mb-1">
@@ -293,11 +293,11 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           placeholder="分配一个任务或提问任何问题..."
-          className="scrollbar-hide outline-none w-full text-sm resize-none h-[46px] min-h-[40px]"
+          className="scrollbar-hide h-[46px] min-h-[40px] w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
           disabled={sending || disabled || teamLocked}
         />
         {mention && !sending && !disabled && !teamLocked && (
-          <div className="absolute left-4 right-4 top-full z-50 max-h-56 overflow-y-auto rounded-lg border bg-white p-1 shadow-lg">
+          <div className="runner-floating-surface absolute left-4 right-4 top-full z-50 max-h-56 overflow-y-auto bg-popover p-1">
             {loadingSkills && (
               <div className="flex items-center gap-2 px-3 py-2 text-xs text-gray-500">
                 <Loader2 className="size-3 animate-spin"/>
@@ -312,8 +312,8 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
                 key={skill.id}
                 type="button"
                 className={cn(
-                  'flex w-full flex-col rounded-md px-3 py-2 text-left',
-                  index === activeSkillIndex ? 'bg-gray-100' : 'hover:bg-gray-50',
+                  'flex w-full flex-col rounded-sm px-3 py-2 text-left',
+                  index === activeSkillIndex ? 'bg-secondary' : 'hover:bg-accent',
                 )}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => insertSkill(skill)}
@@ -339,7 +339,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
           />
           <Button
             variant="outline"
-            className="rounded-full w-8 h-8 cursor-pointer"
+            className="h-8 w-8 rounded-md cursor-pointer"
             onClick={handleUploadClick}
             disabled={uploading || teamLocked}
             aria-label="上传附件"
@@ -350,7 +350,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
               <Paperclip/>
             )}
           </Button>
-          <div role="group" aria-label="Agent 模式" className="flex rounded-full border bg-gray-50 p-0.5">
+          <div role="group" aria-label="Agent 模式" className="flex rounded-full border border-border bg-secondary p-0.5">
             {([['react', '单 Agent'], ['team', '多 Agent']] as const).map(([value, label]) => (
               <Button
                 key={value}
@@ -373,7 +373,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
             // 任务运行中时显示暂停按钮
             <Button
               variant="outline"
-              className="rounded-full w-8 h-8 cursor-pointer"
+              className="h-8 w-8 rounded-md cursor-pointer"
               onClick={onStop}
               disabled={!onStop}
               aria-label="停止任务"
@@ -384,7 +384,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
             // 任务未运行时显示发送按钮
             <Button
               variant="outline"
-              className="rounded-full w-8 h-8 cursor-pointer"
+              className="h-8 w-8 rounded-md cursor-pointer"
               onClick={handleSend}
               disabled={sending || disabled || !inputValue.trim()}
               aria-label="发送消息"

@@ -87,3 +87,12 @@ test('shared controls use hard-edged Runner surfaces', () => {
   assert.match(dialog, /runner-floating-surface/)
   assert.match(switchSource, /data-\[state=checked\]:bg-emphasis/)
 })
+
+test('home and sidebar expose the Runner visual markers', () => {
+  assert.match(read('src/app/page.tsx'), /runner-grid/)
+  assert.match(read('src/app/page.tsx'), /font-display/)
+  assert.match(read('src/components/chat-header.tsx'), /runner-brand-mark/)
+  assert.match(read('src/components/left-panel.tsx'), /runner-grid/)
+  assert.match(read('src/components/session-item.tsx'), /runner-active-row/)
+  assert.match(read('src/components/chat-input.tsx'), /runner-command-surface/)
+})

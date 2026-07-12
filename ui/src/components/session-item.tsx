@@ -47,13 +47,13 @@ export function SessionItem({session, isActive, onClick, onDelete}: SessionItemP
 
   return (
     <Item
-      className={`p-2 hover:bg-white cursor-pointer gap-2 items-start ${isActive ? 'bg-white' : ''}`}
+      className={`relative items-start gap-2 border p-2.5 cursor-pointer hover:border-border hover:bg-card ${isActive ? 'runner-active-row' : 'border-transparent'}`}
       onClick={handleClick}
     >
       {/* 左侧图标 */}
       <ItemMedia>
-        <Avatar className="size-8">
-          <AvatarGroupCount>
+        <Avatar className="size-8 rounded-sm">
+          <AvatarGroupCount className="rounded-sm bg-secondary text-foreground ring-0">
             {isRunning
               ? <Loader2 className="animate-spin"/>
               : <CircuitBoard/>
@@ -63,7 +63,7 @@ export function SessionItem({session, isActive, onClick, onDelete}: SessionItemP
       </ItemMedia>
       {/* 中间内容 */}
       <ItemContent className="gap-0 min-w-0">
-        <p className="text-sm font-medium truncate">
+        <p className="text-sm font-medium text-foreground truncate">
           {session.title || '新任务'}
         </p>
         <p className="text-xs text-muted-foreground truncate">
@@ -72,7 +72,7 @@ export function SessionItem({session, isActive, onClick, onDelete}: SessionItemP
       </ItemContent>
       {/* 右侧操作区 */}
       <ItemActions className="flex flex-col pt-0.5 gap-0 self-start">
-        <ItemDescription className="text-xs whitespace-nowrap">{dateLabel}</ItemDescription>
+        <ItemDescription className="font-meta text-xs whitespace-nowrap">{dateLabel}</ItemDescription>
         {mounted && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -101,5 +101,4 @@ export function SessionItem({session, isActive, onClick, onDelete}: SessionItemP
     </Item>
   )
 }
-
 

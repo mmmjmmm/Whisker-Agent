@@ -13,20 +13,19 @@ export function LeftPanel() {
   return (
     <Sidebar>
       {/* 顶部的切换按钮 */}
-      <SidebarHeader>
+      <SidebarHeader className="runner-grid min-h-14 border-b border-sidebar-border">
         <SidebarTrigger className="cursor-pointer"/>
       </SidebarHeader>
       {/* 中间内容 */}
-      <SidebarContent className="p-2">
+      <SidebarContent className="p-2.5">
         {/* 新建任务 */}
         <Button
-          variant="outline"
-          className="cursor-pointer mb-3"
+          className="mb-3 w-full cursor-pointer justify-start border border-foreground"
           onClick={() => router.push('/')}
         >
           <Plus/>
           新建任务
-          <KbdGroup>
+          <KbdGroup className="ml-auto">
             <Kbd>⌘</Kbd>
             <Kbd>K</Kbd>
           </KbdGroup>

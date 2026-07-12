@@ -248,6 +248,21 @@
         background-repeat: no-repeat;
         background-size: 28px 28px;
     }
+
+    .runner-active-row {
+        position: relative;
+        border-color: var(--border);
+        background: var(--card);
+    }
+
+    .runner-active-row::before {
+        position: absolute;
+        inset-block: 8px;
+        left: -1px;
+        width: 3px;
+        background: var(--emphasis);
+        content: "";
+    }
 }
 
 @layer base {

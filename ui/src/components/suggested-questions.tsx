@@ -20,7 +20,7 @@ export function SuggestedQuestions({className, onQuestionClick}: SuggestedQuesti
         <Button
           key={index}
           variant="outline"
-          className="cursor-pointer text-xs sm:text-sm whitespace-normal break-words"
+          className="h-auto min-h-9 cursor-pointer whitespace-normal break-words border-foreground/20 bg-card px-3 py-2 text-left text-xs hover:border-emphasis hover:bg-secondary sm:text-sm"
           onClick={() => handleClick(question)}
         >
           {question}
