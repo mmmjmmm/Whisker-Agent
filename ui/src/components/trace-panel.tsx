@@ -1,6 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+} from 'react'
 import { Activity, AlertCircle, Clock, Database, X } from 'lucide-react'
 import { sessionApi } from '@/lib/api/session'
 import type {
@@ -224,7 +232,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
     }}>
       <DialogContent
         showCloseButton={false}
-        className="runner-trace-shell resize gap-0 overflow-hidden p-0"
+        className="runner-trace-shell resize-none gap-0 overflow-hidden p-0 sm:resize"
         style={{
           width: '1200px',
           maxWidth: 'calc(100vw - 2rem)',
@@ -268,10 +276,10 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
           ) : (
             <div
               ref={traceBodyRef}
-              className="grid min-h-0 flex-1"
-              style={{ gridTemplateColumns: `${traceListWidth}px 6px minmax(0, 1fr)` }}
+              className="runner-trace-body grid min-h-0 min-w-0 flex-1 grid-cols-1 grid-rows-[minmax(96px,24%)_minmax(0,1fr)] bg-card sm:grid-cols-[var(--trace-list-width)_6px_minmax(0,1fr)] sm:grid-rows-1"
+              style={{ '--trace-list-width': `${traceListWidth}px` } as CSSProperties}
             >
-              <div className="min-h-0 overflow-auto border-r">
+              <div className="runner-trace-list min-h-0 min-w-0 overflow-auto border-b sm:border-r sm:border-b-0">
                 <div className="flex min-w-0 flex-col gap-2 p-2">
                   {traces.map((trace) => (
                     <button
@@ -307,12 +315,12 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                 aria-orientation="vertical"
                 aria-label="调整 Trace 列表宽度"
                 onPointerDown={handleTraceListResizeStart}
-                className="cursor-col-resize bg-transparent transition-colors hover:bg-emphasis/30"
+                className="runner-trace-list-resizer hidden cursor-col-resize bg-transparent transition-colors hover:bg-emphasis/30 sm:block"
               />
 
               <div
                 ref={traceDetailRef}
-                className="grid min-h-0"
+                className="runner-trace-detail grid min-h-0 min-w-0"
                 style={{ gridTemplateRows: `${spanTreeHeight}px 6px minmax(0, 1fr)` }}
               >
                 <div className="min-h-0 overflow-auto border-b">

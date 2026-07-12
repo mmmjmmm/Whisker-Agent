@@ -115,8 +115,13 @@ test('preview surfaces render as flat Runner work windows', () => {
 })
 
 test('settings and trace use Runner workbench shells', () => {
+  const trace = read('src/components/trace-panel.tsx')
+
   assert.match(read('src/components/manus-settings.tsx'), /runner-settings-shell/)
   assert.match(read('src/components/skill-settings.tsx'), /runner-source-panel/)
-  assert.match(read('src/components/trace-panel.tsx'), /runner-trace-shell/)
-  assert.match(read('src/components/trace-panel.tsx'), /runner-metric/)
+  assert.match(trace, /runner-trace-shell/)
+  assert.match(trace, /runner-metric/)
+  assert.match(trace, /runner-trace-body/)
+  assert.match(trace, /'--trace-list-width'/)
+  assert.match(trace, /sm:grid-cols-\[var\(--trace-list-width\)/)
 })
