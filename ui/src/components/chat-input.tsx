@@ -54,7 +54,6 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
     const [sending, setSending] = useState(false)
     const [inputValue, setInputValue] = useState('')
     const [skills, setSkills] = useState<SkillListItem[]>([])
-    const [skillsLoaded, setSkillsLoaded] = useState(false)
     const [loadingSkills, setLoadingSkills] = useState(false)
     const [mention, setMention] = useState<SkillMention | null>(null)
     const [activeSkillIndex, setActiveSkillIndex] = useState(0)
@@ -72,12 +71,11 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
       : []
 
     const loadSkills = async () => {
-      if (skillsLoaded || loadingSkills) return
+      if (loadingSkills) return
       setLoadingSkills(true)
       try {
         const data = await skillApi.list()
         setSkills(data?.skills ?? [])
-        setSkillsLoaded(true)
       } catch (error) {
         setMention(null)
         toast.error(error instanceof Error ? error.message : '获取 Skill 列表失败')
@@ -94,9 +92,11 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
         value,
         e.target.selectionStart ?? value.length,
       )
+      const isNewMention = nextMention
+        && (!mention || nextMention.start !== mention.start)
       setMention(nextMention)
       setActiveSkillIndex(0)
-      if (nextMention) void loadSkills()
+      if (isNewMention) void loadSkills()
     }
 
     useImperativeHandle(ref, () => ({
