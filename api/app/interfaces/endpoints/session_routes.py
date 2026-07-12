@@ -19,6 +19,7 @@ from websockets import ConnectionClosed
 from app.application.errors.exceptions import NotFoundError
 from app.application.services.agent_service import AgentService
 from app.application.services.session_service import SessionService
+from app.application.services.trace_service import TraceService
 from app.interfaces.schemas import Response
 from app.interfaces.schemas.event import EventMapper
 from app.interfaces.schemas.session import (
@@ -28,7 +29,18 @@ from app.interfaces.schemas.session import (
     ChatRequest,
     GetSessionResponse, GetSessionFilesResponse, FileReadResponse, FileReadRequest, ShellReadResponse, ShellReadRequest,
 )
-from app.interfaces.service_dependencies import get_session_service, get_agent_service
+from app.interfaces.schemas.trace import (
+    ListTracesResponse,
+    TraceDetailResponse,
+    TraceMetricsResponse,
+    TraceSpanResponse,
+    TraceSummaryResponse,
+)
+from app.interfaces.service_dependencies import (
+    get_agent_service,
+    get_session_service,
+    get_trace_service,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["会话模块"])
@@ -230,6 +242,66 @@ async def stop_session(
     """根据传递的指定会话id停止对应任务会话"""
     await agent_service.stop_session(session_id)
     return Response.success(msg="停止任务会话成功")
+
+
+@router.get(
+    path="/{session_id}/traces",
+    response_model=Response[ListTracesResponse],
+    summary="获取指定会话 Trace 列表",
+)
+async def get_session_traces(
+        session_id: str,
+        trace_service: TraceService = Depends(get_trace_service),
+) -> Response[ListTracesResponse]:
+    traces = await trace_service.list_traces(session_id)
+    return Response.success(
+        msg="获取 Trace 列表成功",
+        data=ListTracesResponse(
+            traces=[
+                TraceSummaryResponse.model_validate(trace.model_dump())
+                for trace in traces
+            ],
+        ),
+    )
+
+
+@router.get(
+    path="/{session_id}/traces/{trace_id}",
+    response_model=Response[TraceDetailResponse],
+    summary="获取指定 Trace 详情",
+)
+async def get_session_trace_detail(
+        session_id: str,
+        trace_id: str,
+        trace_service: TraceService = Depends(get_trace_service),
+) -> Response[TraceDetailResponse]:
+    spans = await trace_service.get_trace(session_id, trace_id)
+    return Response.success(
+        msg="获取 Trace 详情成功",
+        data=TraceDetailResponse(
+            trace_id=trace_id,
+            spans=[
+                TraceSpanResponse.model_validate(span.model_dump())
+                for span in spans
+            ],
+        ),
+    )
+
+
+@router.get(
+    path="/{session_id}/trace-metrics",
+    response_model=Response[TraceMetricsResponse],
+    summary="获取指定会话 Trace 指标",
+)
+async def get_session_trace_metrics(
+        session_id: str,
+        trace_service: TraceService = Depends(get_trace_service),
+) -> Response[TraceMetricsResponse]:
+    metrics = await trace_service.get_metrics(session_id)
+    return Response.success(
+        msg="获取 Trace 指标成功",
+        data=TraceMetricsResponse.model_validate(metrics.model_dump()),
+    )
 
 
 @router.get(

@@ -84,7 +84,10 @@ class OpenAILLM(LLM):
 
             # 3.处理响应数据并返回
             logger.info(f"OpenAI客户端返回内容: {response.model_dump()}")
-            return response.choices[0].message.model_dump()
+            message = response.choices[0].message.model_dump()
+            if response.usage:
+                message["_usage"] = response.usage.model_dump()
+            return message
         except Exception as e:
             logger.error(f"调用OpenAI客户端发生错误: {str(e)}")
             raise ServerRequestsError("调用OpenAI客户端向LLM发起请求出错")

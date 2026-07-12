@@ -30,6 +30,7 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.services.tools.skill import SkillTool
 from app.domain.services.skills.runtime import SkillRuntime
+from app.domain.services.tracing import TraceRecorder
 from .base import BaseFlow, FlowStatus
 from ...repositories.uow import IUnitOfWork
 
@@ -52,6 +53,7 @@ class PlannerReActFlow(BaseFlow):
             mcp_tool: MCPTool,  # mcp工具
             a2a_tool: A2ATool,  # a2a远程agent
             skill_runtime: SkillRuntime,
+            trace_recorder: TraceRecorder | None = None,
     ) -> None:
         """构造函数，完成规划与执行流的初始化"""
         # 1.流初始化数据配置
@@ -86,6 +88,7 @@ class PlannerReActFlow(BaseFlow):
             json_parser=json_parser,
             tools=planner_tools,
             system_prompt_suffix=catalog,
+            trace_recorder=trace_recorder,
         )
         logger.debug(f"创建规划Agent成功, 会话id: {self._session_id}")
 
@@ -98,6 +101,7 @@ class PlannerReActFlow(BaseFlow):
             json_parser=json_parser,
             tools=react_tools,
             system_prompt_suffix=catalog,
+            trace_recorder=trace_recorder,
         )
         logger.debug(f"创建执行Agent成功, 会话id: {self._session_id}")
 

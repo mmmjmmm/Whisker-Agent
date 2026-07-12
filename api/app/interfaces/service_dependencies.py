@@ -16,6 +16,7 @@ from app.application.services.file_service import FileService
 from app.application.services.session_service import SessionService
 from app.application.services.skill_service import SkillService
 from app.application.services.status_service import StatusService
+from app.application.services.trace_service import TraceService
 from app.domain.services.skills.parser import SkillParser
 from app.domain.services.skills.registry import SkillRegistry
 from app.infrastructure.external.file_storage.oss_file_storage import OSSFileStorage
@@ -84,6 +85,10 @@ def get_file_service(
 
 def get_session_service() -> SessionService:
     return SessionService(uow_factory=get_uow, sandbox_cls=DockerSandbox)
+
+
+def get_trace_service() -> TraceService:
+    return TraceService(uow_factory=get_uow)
 
 
 def get_skill_registry(

@@ -8,6 +8,7 @@ import { PlanPanel } from '@/components/plan-panel'
 import { ChatMessage } from '@/components/chat-message'
 import { FilePreviewPanel } from '@/components/file-preview-panel'
 import { ToolPreviewPanel } from '@/components/tool-preview-panel'
+import { TracePanel } from '@/components/trace-panel'
 import { VNCOverlay } from '@/components/vnc-overlay'
 import { useSessionDetail } from '@/hooks/use-session-detail'
 import { getToolKind } from '@/components/tool-use/utils'
@@ -82,12 +83,13 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const [fileListOpen, setFileListOpen] = useState(false)
   const [previewFile, setPreviewFile] = useState<AttachmentFile | null>(null)
   const [previewTool, setPreviewTool] = useState<ToolEvent | null>(null)
+  const [traceOpen, setTraceOpen] = useState(false)
   const [vncOpen, setVncOpen] = useState(false)
   const initialMessageSentRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const prevToolCountRef = useRef(0)
 
-  const hasPreview = previewFile !== null || previewTool !== null
+  const hasPreview = previewFile !== null || previewTool !== null || traceOpen
 
   /**
    * 将 previewTool 解析为 timeline 中最新版本的工具对象。
@@ -175,6 +177,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const handleFileClick = useCallback((file: AttachmentFile) => {
     setPreviewFile(file)
     setPreviewTool(null)
+    setTraceOpen(false)
   }, [])
 
   const handleToolClick = useCallback((tool: ToolEvent) => {
@@ -182,11 +185,18 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
     if (kind === 'message') return
     setPreviewTool(tool)
     setPreviewFile(null)
+    setTraceOpen(false)
   }, [])
 
   const handleClosePreview = useCallback(() => {
     setPreviewFile(null)
     setPreviewTool(null)
+  }, [])
+
+  const handleTraceOpen = useCallback(() => {
+    setPreviewFile(null)
+    setPreviewTool(null)
+    setTraceOpen(true)
   }, [])
 
   const handleJumpToLatest = useCallback(() => {
@@ -278,6 +288,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
                 onFileListOpenChange={setFileListOpen}
                 onFetchFiles={refreshFiles}
                 onFileClick={handleFileClick}
+                onTraceOpen={handleTraceOpen}
               />
             </div>
 
@@ -342,6 +353,12 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
               onJumpToLatest={handleJumpToLatest}
               onOpenVNC={getToolKind(resolvedPreviewTool) === 'browser' ? handleOpenVNC : undefined}
             />
+          </div>
+        )}
+
+        {traceOpen && (
+          <div className="flex-shrink-0 h-full animate-in slide-in-from-right duration-300">
+            <TracePanel sessionId={sessionId} onClose={() => setTraceOpen(false)} />
           </div>
         )}
       </div>

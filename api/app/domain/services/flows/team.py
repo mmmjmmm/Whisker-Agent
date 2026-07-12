@@ -30,6 +30,7 @@ from app.domain.services.tools.search import SearchTool
 from app.domain.services.tools.shell import ShellTool
 from app.domain.services.tools.skill import SkillTool
 from app.domain.services.skills.runtime import SkillRuntime
+from app.domain.services.tracing import TraceRecorder
 
 
 class QueuedEventEmitter:
@@ -275,6 +276,7 @@ def build_team_flow(
     mcp_tool,
     a2a_tool,
     skill_runtime: SkillRuntime,
+    trace_recorder: TraceRecorder | None = None,
 ) -> TeamFlow:
     """使用本轮共享基础设施构建一个短生命周期 TeamFlow。"""
     tools = [
@@ -296,6 +298,7 @@ def build_team_flow(
         tools=[SkillTool(skill_runtime)] if catalog else [],
         memory=Memory(),
         system_prompt_suffix=catalog,
+        trace_recorder=trace_recorder,
     )
     worker_config = agent_config.model_copy(
         update={
@@ -319,6 +322,7 @@ def build_team_flow(
             memory=Memory(),
             allowed_tool_names=frozenset(allowed_names),
             system_prompt_suffix=catalog,
+            trace_recorder=trace_recorder,
             graph_id=graph_id,
             task=task,
             agent_id=agent_id,
@@ -343,6 +347,7 @@ def build_team_flow(
             tools=[SkillTool(skill_runtime)] if catalog else [],
             memory=Memory(),
             system_prompt_suffix=catalog,
+            trace_recorder=trace_recorder,
         )
 
     return TeamFlow(

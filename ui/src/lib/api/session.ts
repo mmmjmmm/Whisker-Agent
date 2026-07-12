@@ -10,6 +10,9 @@ import type {
   ViewShellParams,
   SSEEventData,
   SSEEventHandler,
+  TraceDetailData,
+  TraceListData,
+  TraceMetrics,
 } from "./types";
 
 /**
@@ -204,6 +207,30 @@ export const sessionApi = {
   },
 
   /**
+   * 获取会话 Trace 列表
+   */
+  getSessionTraces: (sessionId: string): Promise<TraceListData> => {
+    return get<TraceListData>(`/sessions/${sessionId}/traces`);
+  },
+
+  /**
+   * 获取会话 Trace 详情
+   */
+  getSessionTraceDetail: (
+    sessionId: string,
+    traceId: string
+  ): Promise<TraceDetailData> => {
+    return get<TraceDetailData>(`/sessions/${sessionId}/traces/${traceId}`);
+  },
+
+  /**
+   * 获取会话 Trace 指标
+   */
+  getSessionTraceMetrics: (sessionId: string): Promise<TraceMetrics> => {
+    return get<TraceMetrics>(`/sessions/${sessionId}/trace-metrics`);
+  },
+
+  /**
    * 删除会话
    */
   deleteSession: (sessionId: string): Promise<void> => {
@@ -253,4 +280,3 @@ export const sessionApi = {
     );
   },
 };
-

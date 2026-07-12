@@ -264,6 +264,71 @@ export type SessionDetail = Session & {
   events?: SSEEventData[];
 };
 
+export type TraceSpanStatus = "running" | "ok" | "error";
+
+export type TraceSpanType =
+  | "root"
+  | "flow"
+  | "agent"
+  | "llm"
+  | "tool"
+  | "event";
+
+export type TraceSummary = {
+  trace_id: string;
+  started_at?: string | null;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+  status: TraceSpanStatus;
+  root_input_preview: string;
+  span_count: number;
+  error_count: number;
+  llm_call_count: number;
+  tool_call_count: number;
+  models: string[];
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+};
+
+export type TraceSpan = {
+  id: string;
+  trace_id: string;
+  session_id: string;
+  parent_span_id?: string | null;
+  span_type: TraceSpanType;
+  name: string;
+  status: TraceSpanStatus;
+  started_at: string;
+  ended_at?: string | null;
+  duration_ms?: number | null;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  error?: Record<string, unknown> | null;
+  attributes: Record<string, unknown>;
+};
+
+export type TraceMetrics = {
+  trace_count: number;
+  error_trace_count: number;
+  error_rate: number;
+  avg_duration_ms: number;
+  p95_duration_ms?: number | null;
+  llm_call_count: number;
+  tool_call_count: number;
+  total_tokens: number;
+  models: string[];
+};
+
+export type TraceListData = {
+  traces: TraceSummary[];
+};
+
+export type TraceDetailData = {
+  trace_id: string;
+  spans: TraceSpan[];
+};
+
 /**
  * 计划步骤
  */

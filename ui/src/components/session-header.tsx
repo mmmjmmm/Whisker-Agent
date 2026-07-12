@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
-import { Download, FileSearchCorner, FileText } from 'lucide-react'
+import { Activity, Download, FileSearchCorner, FileText } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,8 @@ export interface SessionHeaderProps {
   onFetchFiles?: () => void | Promise<void>
   /** 点击文件时的预览回调 */
   onFileClick?: (file: AttachmentFile) => void
+  /** 点击 Trace 入口 */
+  onTraceOpen?: () => void
 }
 
 export function SessionHeader({
@@ -50,6 +52,7 @@ export function SessionHeader({
   onFileListOpenChange,
   onFetchFiles,
   onFileClick,
+  onTraceOpen,
 }: SessionHeaderProps) {
   const { open, isMobile } = useSidebar()
   const [mounted, setMounted] = useState(false)
@@ -129,6 +132,17 @@ export function SessionHeader({
       <div className="text-gray-700 text-lg whitespace-nowrap text-ellipsis overflow-hidden flex-1 min-w-0">
         {title || '未命名任务'}
       </div>
+      {onTraceOpen && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="cursor-pointer flex-shrink-0"
+          onClick={onTraceOpen}
+          aria-label="打开 Trace"
+        >
+          <Activity />
+        </Button>
+      )}
       {mounted ? (
         <Dialog open={openState} onOpenChange={setOpenState}>
           <DialogTrigger asChild>

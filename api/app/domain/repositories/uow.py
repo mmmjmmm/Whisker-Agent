@@ -11,6 +11,7 @@ from typing import TypeVar
 from .file_repository import FileRepository
 from .session_repository import SessionRepository
 from .skill_repository import SkillRepository
+from .trace_repository import TraceRepository
 
 T = TypeVar("T", bound="IUnitOfWork")
 
@@ -20,6 +21,7 @@ class IUnitOfWork(ABC):
     file: FileRepository
     session: SessionRepository
     skill: SkillRepository
+    trace: TraceRepository
 
     @abstractmethod
     async def commit(self):
