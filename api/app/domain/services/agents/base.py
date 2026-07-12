@@ -42,6 +42,7 @@ class BaseAgent(ABC):
             tools: List[BaseTool],  # 工具列表
             memory: Optional[Memory] = None,
             allowed_tool_names: Optional[set[str] | frozenset[str]] = None,
+            system_prompt_suffix: str = "",
     ) -> None:
         """构造函数，完成Agent的初始化"""
         self._uow_factory = uow_factory
@@ -58,6 +59,17 @@ class BaseAgent(ABC):
         )
         self._json_parser = json_parser
         self._tools = tools
+        base_prompt = type(self)._system_prompt
+        self._system_prompt = (
+            f"{base_prompt.rstrip()}\n\n{system_prompt_suffix}"
+            if system_prompt_suffix
+            else base_prompt
+        )
+        self._tool_choice = type(self)._tool_choice
+        if self._tool_choice == "none" and any(
+                tool.has_tool("load_skill") for tool in self._tools
+        ):
+            self._tool_choice = None
 
     async def _ensure_memory(self) -> None:
         """确保智能体记忆是存在的"""
