@@ -30,7 +30,7 @@ class AgentConfig(BaseModel):
     team_max_workers: int = Field(default=3, ge=1, le=8)
     team_max_task_retries: int = Field(default=1, ge=0, le=3)
     team_task_timeout_seconds: int = Field(default=300, ge=30, le=1800)
-    team_max_worker_iterations: int = Field(default=20, ge=1, le=100)
+    team_max_worker_iterations: int = Field(default=50, ge=1, le=100)
 
 
 class MCPTransport(str, Enum):

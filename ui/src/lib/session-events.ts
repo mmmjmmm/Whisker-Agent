@@ -148,7 +148,11 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
   let stepIndex = 0;
   let errorIndex = 0;
 
-  const upsertTeamStep = (graphId: string, task: TeamTask) => {
+  const upsertTeamStep = (
+    graphId: string,
+    task: TeamTask,
+    create: boolean,
+  ) => {
     const key = `${graphId}:${task.id}`;
     const data: StepEvent = {
       id: key,
@@ -157,6 +161,7 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
     };
     const existingIndex = teamStepIndexes.get(key);
     if (existingIndex === undefined) {
+      if (!create) return;
       teamStepIndexes.set(key, list.length);
       list.push({
         kind: "step",
@@ -347,17 +352,17 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
       }
       case "title":
       case "plan":
+      case "task_graph":
       case "wait":
       case "done":
         break;
-      case "task_graph": {
-        for (const task of ev.data.graph.tasks) {
-          upsertTeamStep(ev.data.graph.id, task);
-        }
-        break;
-      }
       case "task": {
-        upsertTeamStep(ev.data.graph_id, ev.data.task);
+        const status = ev.data.task.status;
+        upsertTeamStep(
+          ev.data.graph_id,
+          ev.data.task,
+          status === "running" || status === "retrying",
+        );
         break;
       }
       case "error": {

@@ -165,7 +165,14 @@ class TeamFlow(BaseFlow):
             elif self._graph.status is TaskGraphStatus.FAILED:
                 self._done = True
                 yield ErrorEvent(
-                    error=self._graph.error or "所有 Team Task 均失败"
+                    error="\n".join(
+                        ["Team 执行失败："]
+                        + [
+                            f"- {task.description}：{task.error}"
+                            for task in self._graph.tasks
+                            if task.error
+                        ]
+                    )
                 )
                 return
 
