@@ -140,9 +140,9 @@ export function SessionHeader({
   }, [])
 
   return (
-    <header className="bg-[#f8f8f7] flex flex-row items-center justify-between pt-3 pb-2 gap-2 sticky top-0 z-10 flex-shrink-0">
+    <header className="runner-panel-header flex flex-row items-center justify-between gap-2 sticky top-0 z-10 flex-shrink-0 px-1 pt-3 pb-2">
       {(!open || isMobile) && <SidebarTrigger className="cursor-pointer flex-shrink-0" />}
-      <div className="text-gray-700 text-lg whitespace-nowrap text-ellipsis overflow-hidden flex-1 min-w-0">
+      <div className="text-foreground text-base font-medium whitespace-nowrap text-ellipsis overflow-hidden flex-1 min-w-0">
         {title || '未命名任务'}
       </div>
       {onTraceOpen && (
@@ -181,7 +181,7 @@ export function SessionHeader({
               <ScrollArea className="h-[500px]">
                 <div className="flex flex-col gap-1">
                   {uniqueFileList.length === 0 ? (
-                    <p className="text-sm text-gray-500 py-4">暂无文件</p>
+                    <p className="text-sm text-muted-foreground py-4">暂无文件</p>
                   ) : (
                     uniqueFileList.map((file) => (
                       <Item
@@ -198,7 +198,7 @@ export function SessionHeader({
                           </Avatar>
                         </ItemMedia>
                         <ItemContent className="gap-0">
-                          <ItemTitle className="text-sm text-gray-700">
+                          <ItemTitle className="text-sm text-foreground">
                             {file.filename}
                           </ItemTitle>
                           <ItemDescription className="text-xs">

@@ -354,12 +354,12 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
     return (
       <div className="relative flex flex-col h-full flex-1 min-w-0 px-4 items-center justify-center">
         {hasInitialMessage ? (
-          <div className="flex items-center gap-2 text-sm text-gray-500">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             <span>正在思考中...</span>
           </div>
         ) : (
-          <p className="text-sm text-gray-500">加载中...</p>
+          <p className="text-sm text-muted-foreground">加载中...</p>
         )}
       </div>
     )
@@ -372,7 +372,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
         <button
           type="button"
           onClick={() => refresh()}
-          className="text-sm text-primary underline"
+          className="text-sm text-emphasis underline"
         >
           重试
         </button>
@@ -383,7 +383,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   if (!session) {
     return (
       <div className="relative flex flex-col h-full flex-1 min-w-0 px-4 items-center justify-center">
-        <p className="text-sm text-gray-500">未找到该任务</p>
+        <p className="text-sm text-muted-foreground">未找到该任务</p>
       </div>
     )
   }
@@ -411,7 +411,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto" onScroll={updateChatPinnedState}>
               <div className="flex flex-col w-full gap-3 pt-3">
                 {timeline.length === 0 && !streaming && !hasInitialMessage && (
-                  <div className="flex items-center justify-center py-8 text-sm text-gray-500">
+                  <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
                     暂无对话记录，在下方输入任务或提问
                   </div>
                 )}
@@ -426,7 +426,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
                 ))}
 
                 {(session?.status === 'running' || hasInitialMessage) && (
-                  <div className="flex items-center gap-2 text-sm text-gray-500 py-3">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
                     <Loader2 className="size-4 animate-spin" />
                     <span>正在思考中...</span>
                   </div>
@@ -436,7 +436,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
               </div>
             </div>
 
-            <div className="flex-shrink-0 bg-[#f8f8f7] py-4">
+            <div className="flex-shrink-0 border-t border-dashed border-border bg-background py-4">
               <PlanPanel
                 className="mb-2"
                 steps={teamPlanSteps ?? planSteps}

@@ -263,6 +263,31 @@
         background: var(--emphasis);
         content: "";
     }
+
+    .runner-panel {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--card);
+    }
+
+    .runner-panel-header {
+        border-bottom: 1px dashed var(--border);
+        background-color: var(--background);
+        background-image: radial-gradient(circle, var(--runner-dot) 0.75px, transparent 0.8px);
+        background-size: 4px 4px;
+    }
+
+    .runner-message-user {
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--card);
+        box-shadow: 2px 2px 0 var(--runner-hard-shadow);
+    }
+
+    .runner-step-row {
+        border-radius: 4px;
+        color: var(--foreground);
+    }
 }
 
 @layer base {

@@ -96,3 +96,13 @@ test('home and sidebar expose the Runner visual markers', () => {
   assert.match(read('src/components/session-item.tsx'), /runner-active-row/)
   assert.match(read('src/components/chat-input.tsx'), /runner-command-surface/)
 })
+
+test('conversation surfaces use the Runner execution language', () => {
+  const detail = read('src/components/session-detail-view.tsx')
+  assert.doesNotMatch(detail, /#f8f8f7/i)
+  assert.match(read('src/components/session-header.tsx'), /runner-panel-header/)
+  assert.match(read('src/components/chat-message.tsx'), /runner-message-user/)
+  assert.match(read('src/components/chat-message.tsx'), /runner-step-row/)
+  assert.match(read('src/components/plan-panel.tsx'), /runner-panel/)
+  assert.match(read('src/components/tool-use/tool-badge.tsx'), /font-meta/)
+})

@@ -40,7 +40,7 @@ function ToolRow({
       <div className="min-w-0 flex-shrink-0">{children}</div>
       <span
         className={cn(
-          'flex-shrink-0 text-xs text-gray-500 min-w-[2.5rem] text-right transition-opacity duration-150',
+          'font-meta flex-shrink-0 text-xs text-muted-foreground min-w-[2.5rem] text-right transition-opacity duration-200',
           hovered ? 'opacity-100' : 'opacity-0'
         )}
       >
@@ -66,7 +66,7 @@ export function ChatMessage({
         )}
       >
         <div className="flex max-w-[90%] relative flex-col gap-2 items-end">
-          <div className="text-gray-700 relative flex items-center rounded-lg overflow-hidden bg-white p-3 border">
+          <div className="runner-message-user relative flex items-center overflow-hidden p-3 text-foreground">
             {item.data.message ?? ''}
           </div>
         </div>
@@ -80,12 +80,12 @@ export function ChatMessage({
         className={cn('flex flex-col gap-2 w-full group mt-3', className)}
       >
         <div className="flex items-center justify-between h-7 group">
-          <div className="flex items-center justify-center gap-1 text-gray-700">
+          <div className="flex items-center justify-center gap-1 text-foreground">
             <Languages size={18} />
             <ManusIcon />
           </div>
         </div>
-        <div className="max-w-none p-0 m-0 text-gray-700">
+        <div className="max-w-none p-0 m-0 text-foreground">
           <MarkdownContent content={item.data.message ?? ''} />
         </div>
       </div>
@@ -168,12 +168,12 @@ function StepBlock({
             setExpanded((prev) => !prev)
           }
         }}
-        className="text-sm w-full cursor-pointer flex gap-2 justify-between group/header truncate text-gray-700 rounded-md hover:bg-gray-50/80 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+        className="runner-step-row text-sm w-full cursor-pointer flex gap-2 justify-between group/header truncate hover:bg-secondary transition-colors duration-200 outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       >
         <div className="flex flex-row gap-2 justify-start items-center truncate min-w-0 flex-1">
           <div
             className={cn(
-              'w-4 h-4 flex-shrink-0 flex items-center justify-center border rounded-[15px] bg-gray-300'
+              'w-4 h-4 flex-shrink-0 flex items-center justify-center border border-emphasis rounded-full bg-emphasis'
             )}
           >
             <CheckIcon className="text-white" size={10} />
@@ -182,16 +182,16 @@ function StepBlock({
             {data.description}
           </div>
           <ChevronDown
-            className={cn('flex-shrink-0 transition-transform text-gray-500', expanded && 'rotate-180')}
+            className={cn('flex-shrink-0 transition-transform text-muted-foreground', expanded && 'rotate-180')}
           />
         </div>
       </div>
       {expanded && tools.length > 0 && (
         <div className="flex">
           <div className="w-6 relative flex-shrink-0">
-            <div className="absolute left-[7px] top-2 bottom-0 w-[1px] border-l border-dashed border-gray-300" />
+            <div className="absolute left-[7px] top-2 bottom-0 w-px border-l border-dashed border-emphasis/40" />
           </div>
-          <div className="flex flex-col gap-3 flex-1 min-w-0 overflow-hidden pt-2 transition-[max-height,opacity] duration-150 ease-in-out">
+          <div className="flex flex-col gap-3 flex-1 min-w-0 overflow-hidden pt-2 transition-[max-height,opacity] duration-200 ease-in-out">
             {tools.map((tool, idx) => (
               <ToolRow key={`${data.id}-tool-${idx}`} timeLabel={getToolTimeLabel(tool)}>
                 <ToolUse data={tool} onClick={onToolClick ? () => onToolClick(tool) : undefined} />
