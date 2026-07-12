@@ -300,6 +300,31 @@
         background: rgb(0 0 0 / 72%);
         box-shadow: 4px 4px 0 rgb(0 0 0 / 28%);
     }
+
+    .runner-settings-shell,
+    .runner-trace-shell {
+        border: 1px solid var(--foreground);
+        border-radius: 6px;
+        background: var(--card);
+        box-shadow: 8px 8px 0 var(--runner-hard-shadow);
+    }
+
+    .runner-source-panel {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--secondary);
+    }
+
+    .runner-metric {
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--background);
+    }
+
+    .runner-settings-footer {
+        border-top: 1px dashed var(--border);
+        background: var(--background);
+    }
 }
 
 @layer base {

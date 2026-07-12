@@ -908,20 +908,20 @@ export function ManusSettings() {
       </DialogTrigger>
 
       {/* 弹窗内容 */}
-      <DialogContent className="!max-w-[850px]">
+      <DialogContent className="runner-settings-shell max-h-[calc(100dvh-2rem)] overflow-hidden !max-w-[850px]">
         {/* 头部 */}
-        <DialogHeader className="border-b pb-4">
-          <DialogTitle className="text-gray-700">WhiskerAgent 设置</DialogTitle>
-          <DialogDescription className="text-gray-500">
+        <DialogHeader className="runner-panel-header -mx-6 -mt-6 px-6 py-4">
+          <DialogTitle className="text-foreground">WhiskerAgent 设置</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
             在此管理您的 WhiskerAgent 设置。
           </DialogDescription>
         </DialogHeader>
 
         {/* 中间主体 */}
-        <div className="flex flex-row gap-4">
+        <div className="flex min-h-0 flex-col gap-3 sm:flex-row sm:gap-4">
           {/* 左侧导航菜单 */}
-          <div className="max-w-[180px]">
-            <div className="flex flex-col gap-0">
+          <div className="w-full border-b border-border pb-3 sm:max-w-[180px] sm:border-b-0 sm:pb-0">
+            <div className="grid grid-cols-2 gap-1 sm:flex sm:flex-col">
               {SETTING_MENUS.map((menu) => (
                 <Button
                   key={menu.key}
@@ -937,10 +937,10 @@ export function ManusSettings() {
           </div>
 
           {/* 分隔符 */}
-          <Separator orientation="vertical" />
+          <Separator orientation="vertical" className="hidden sm:block" />
 
           {/* 右侧内容 */}
-          <div className="flex-1 h-[500px] scrollbar-hide overflow-y-auto">
+          <div className="min-h-0 flex-1 h-[min(500px,calc(100dvh-300px))] scrollbar-hide overflow-y-auto">
             {loadingConfig &&
             (activeSetting === "common-setting" ||
               activeSetting === "llm-setting") ? (
@@ -983,7 +983,7 @@ export function ManusSettings() {
         </div>
 
         {/* 底部按钮 */}
-        <DialogFooter className="border-t pt-4">
+        <DialogFooter className="runner-settings-footer -mx-6 -mb-6 px-6 py-4">
           <DialogClose asChild>
             <Button variant="outline" className="cursor-pointer">
               取消

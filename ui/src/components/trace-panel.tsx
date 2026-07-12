@@ -72,10 +72,10 @@ function SpanTree({
         <button
           type="button"
           onClick={() => onSelect(span)}
-          className={`w-full rounded border px-2 py-1.5 text-left text-xs transition-colors ${
+          className={`w-full rounded-md border px-2 py-1.5 text-left text-xs transition-colors duration-200 ${
             isSelected
-              ? 'border-gray-900 bg-gray-900 text-white'
-              : 'border-gray-200 bg-white hover:bg-gray-50'
+              ? 'border-emphasis bg-primary text-primary-foreground'
+              : 'border-border bg-card hover:bg-secondary'
           }`}
           style={{ paddingLeft: 8 + depth * 14 }}
         >
@@ -224,7 +224,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
     }}>
       <DialogContent
         showCloseButton={false}
-        className="resize gap-0 overflow-hidden p-0"
+        className="runner-trace-shell resize gap-0 overflow-hidden p-0"
         style={{
           width: '1200px',
           maxWidth: 'calc(100vw - 2rem)',
@@ -233,8 +233,8 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
         }}
       >
         <DialogTitle className="sr-only">Trace</DialogTitle>
-        <div className="flex h-full min-h-0 flex-col bg-white">
-          <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="flex h-full min-h-0 flex-col bg-card">
+          <div className="runner-panel-header flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               <Activity size={16} />
               <span>Trace</span>
@@ -245,26 +245,26 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
           </div>
 
           <div className="grid grid-cols-2 gap-2 border-b p-3 text-xs md:grid-cols-4">
-            <div className="min-w-0 rounded border p-2">
-              <div className="text-gray-500">错误率</div>
+            <div className="runner-metric min-w-0 p-2 font-meta">
+              <div className="text-muted-foreground">错误率</div>
               <div className="font-medium">{metrics ? `${Math.round(metrics.error_rate * 100)}%` : '-'}</div>
             </div>
-            <div className="min-w-0 rounded border p-2">
-              <div className="text-gray-500">平均耗时</div>
+            <div className="runner-metric min-w-0 p-2 font-meta">
+              <div className="text-muted-foreground">平均耗时</div>
               <div className="font-medium">{metrics ? formatMs(metrics.avg_duration_ms) : '-'}</div>
             </div>
-            <div className="min-w-0 rounded border p-2">
-              <div className="text-gray-500">Token</div>
+            <div className="runner-metric min-w-0 p-2 font-meta">
+              <div className="text-muted-foreground">Token</div>
               <div className="font-medium">{metrics?.total_tokens ?? '-'}</div>
             </div>
-            <div className="min-w-0 rounded border p-2">
-              <div className="text-gray-500">模型</div>
+            <div className="runner-metric min-w-0 p-2 font-meta">
+              <div className="text-muted-foreground">模型</div>
               <div className="truncate font-medium">{metrics?.models.join(', ') || '-'}</div>
             </div>
           </div>
 
           {loading ? (
-            <div className="p-4 text-sm text-gray-500">加载中...</div>
+            <div className="p-4 text-sm text-muted-foreground">加载中...</div>
           ) : (
             <div
               ref={traceBodyRef}
@@ -278,8 +278,10 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                       key={trace.trace_id}
                       type="button"
                       onClick={() => loadTrace(trace.trace_id)}
-                      className={`min-w-0 rounded border p-2 text-left text-xs hover:bg-gray-50 ${
-                        detail?.trace_id === trace.trace_id ? 'border-gray-900' : 'border-gray-200'
+                      className={`min-w-0 rounded-md border p-2 text-left text-xs transition-colors duration-200 hover:bg-secondary ${
+                        detail?.trace_id === trace.trace_id
+                          ? 'border-emphasis bg-secondary'
+                          : 'border-border bg-card'
                       }`}
                     >
                       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -292,7 +294,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                           <Clock size={13} className="shrink-0" />
                         )}
                       </div>
-                      <div className="mt-1 break-words text-gray-500">
+                      <div className="font-meta mt-1 break-words text-muted-foreground">
                         {formatMs(trace.duration_ms)} · {trace.error_count} 错误 · {trace.total_tokens} Token
                       </div>
                     </button>
@@ -305,7 +307,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                 aria-orientation="vertical"
                 aria-label="调整 Trace 列表宽度"
                 onPointerDown={handleTraceListResizeStart}
-                className="cursor-col-resize bg-transparent transition-colors hover:bg-gray-200"
+                className="cursor-col-resize bg-transparent transition-colors hover:bg-emphasis/30"
               />
 
               <div
@@ -322,7 +324,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                         onSelect={setSelectedSpan}
                       />
                     ) : (
-                      <div className="text-sm text-gray-500">暂无 Trace</div>
+                      <div className="text-sm text-muted-foreground">暂无 Trace</div>
                     )}
                   </div>
                 </div>
@@ -332,7 +334,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                   aria-orientation="horizontal"
                   aria-label="调整 Span 详情高度"
                   onPointerDown={handleSpanTreeResizeStart}
-                  className="cursor-row-resize bg-transparent transition-colors hover:bg-gray-200"
+                  className="cursor-row-resize bg-transparent transition-colors hover:bg-emphasis/30"
                 />
 
                 <div className="min-h-0 overflow-auto">
@@ -343,7 +345,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                           <Database size={14} className="shrink-0" />
                           <span className="min-w-0 break-words">{selectedSpan.span_type} · {selectedSpan.name}</span>
                         </div>
-                        <pre className="min-w-0 whitespace-pre-wrap break-words rounded bg-gray-950 p-3 text-gray-100">
+                        <pre className="font-meta min-w-0 whitespace-pre-wrap break-words rounded-md border border-neutral-700 bg-neutral-950 p-3 text-neutral-100">
                           {formatJson({
                             status: selectedSpan.status,
                             duration_ms: selectedSpan.duration_ms,
@@ -355,7 +357,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                         </pre>
                       </div>
                     ) : (
-                      <div className="text-sm text-gray-500">选择一个 span 查看详情</div>
+                      <div className="text-sm text-muted-foreground">选择一个 span 查看详情</div>
                     )}
                   </div>
                 </div>

@@ -113,3 +113,10 @@ test('preview surfaces render as flat Runner work windows', () => {
   assert.match(read('src/components/tool-preview-panel.tsx'), /runner-panel-header/)
   assert.match(read('src/components/vnc-overlay.tsx'), /runner-vnc-control/)
 })
+
+test('settings and trace use Runner workbench shells', () => {
+  assert.match(read('src/components/manus-settings.tsx'), /runner-settings-shell/)
+  assert.match(read('src/components/skill-settings.tsx'), /runner-source-panel/)
+  assert.match(read('src/components/trace-panel.tsx'), /runner-trace-shell/)
+  assert.match(read('src/components/trace-panel.tsx'), /runner-metric/)
+})

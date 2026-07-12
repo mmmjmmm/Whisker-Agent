@@ -189,8 +189,8 @@ export function SkillSettings() {
             <DialogTitle>{detail?.name ?? 'Skill'}</DialogTitle>
             <DialogDescription>{detail?.description}</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="h-[460px] rounded-lg border bg-gray-50">
-            <pre className="p-4 text-xs whitespace-pre-wrap break-words text-gray-700">
+          <ScrollArea className="runner-source-panel h-[460px]">
+            <pre className="p-4 text-xs whitespace-pre-wrap break-words text-foreground">
               {detail?.skill_md ?? ''}
             </pre>
           </ScrollArea>
