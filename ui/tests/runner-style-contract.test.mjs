@@ -72,3 +72,18 @@ test('uses the semantic application background', () => {
   assert.match(layout, /flex-1 bg-background h-screen overflow-hidden/)
   assert.doesNotMatch(layout, /bg-\[#f8f8f7\]/i)
 })
+
+test('shared controls use hard-edged Runner surfaces', () => {
+  const button = read('src/components/ui/button.tsx')
+  const input = read('src/components/ui/input.tsx')
+  const textarea = read('src/components/ui/textarea.tsx')
+  const dialog = read('src/components/ui/dialog.tsx')
+  const switchSource = read('src/components/ui/switch.tsx')
+
+  assert.match(button, /duration-200/)
+  assert.doesNotMatch(button, /shadow-xs/)
+  assert.doesNotMatch(input, /shadow-xs/)
+  assert.doesNotMatch(textarea, /shadow-xs/)
+  assert.match(dialog, /runner-floating-surface/)
+  assert.match(switchSource, /data-\[state=checked\]:bg-emphasis/)
+})
