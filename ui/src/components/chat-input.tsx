@@ -231,7 +231,7 @@ export const ChatInput = forwardRef<ChatInputRef, ChatInputProps>(
         }
       }
       // 支持 Ctrl/Cmd + Enter 发送
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      if (!mention && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault()
         handleSend()
       }
