@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { SessionHeader } from '@/components/session-header'
 import { ChatInput } from '@/components/chat-input'
@@ -20,6 +20,11 @@ import {
 import type { AgentMode, ToolEvent, FileInfo } from '@/lib/api/types'
 import type { AttachmentFile, TimelineItem } from '@/lib/session-events'
 import { sessionApi } from '@/lib/api/session'
+import {
+  getNextResizableWidth,
+  isNearScrollBottom,
+  shouldAutoOpenToolPreview,
+} from '@/lib/ui-layout'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 
@@ -30,6 +35,11 @@ export interface SessionDetailViewProps {
   initialMode?: AgentMode
   hasInitialMessage?: boolean
 }
+
+const RIGHT_PANEL_DEFAULT_WIDTH = 600
+const RIGHT_PANEL_MIN_WIDTH = 360
+const RIGHT_PANEL_MAX_WIDTH = 960
+const MAIN_CONTENT_MIN_WIDTH = 360
 
 /**
  * 从 timeline 中找到最后一个非 message 类型的工具事件
@@ -85,11 +95,44 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const [previewTool, setPreviewTool] = useState<ToolEvent | null>(null)
   const [traceOpen, setTraceOpen] = useState(false)
   const [vncOpen, setVncOpen] = useState(false)
+  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
+  const [autoPreviewEnabled, setAutoPreviewEnabled] = useState(true)
+  const [previewToolSelectionCount, setPreviewToolSelectionCount] = useState(0)
   const initialMessageSentRef = useRef(false)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const prevToolCountRef = useRef(0)
+  const isChatPinnedToBottomRef = useRef(true)
 
-  const hasPreview = previewFile !== null || previewTool !== null || traceOpen
+  const latestTool = useMemo(() => findLatestTool(timeline), [timeline])
+  const toolCount = useMemo(() => timeline.reduce((n, item) => {
+    if (item.kind === 'tool') return n + 1
+    if (item.kind === 'step') return n + item.tools.length
+    return n
+  }, 0), [timeline])
+  const activePreviewTool = useMemo(() => {
+    if (previewFile) return null
+    if (shouldAutoOpenToolPreview({
+      autoPreviewEnabled,
+      isRunning: session?.status === 'running',
+      vncOpen,
+      toolCount,
+      previousToolCount: previewTool ? previewToolSelectionCount : 0,
+      hasLatestTool: latestTool !== null,
+    })) {
+      return latestTool
+    }
+    return previewTool
+  }, [
+    autoPreviewEnabled,
+    latestTool,
+    previewFile,
+    previewTool,
+    previewToolSelectionCount,
+    session?.status,
+    toolCount,
+    vncOpen,
+  ])
+
+  const hasPreview = previewFile !== null || activePreviewTool !== null
 
   /**
    * 将 previewTool 解析为 timeline 中最新版本的工具对象。
@@ -98,9 +141,9 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
    * 通过 tool_call_id 匹配获取最新版本。
    */
   const resolvedPreviewTool = useMemo(() => {
-    if (!previewTool) return null
-    const id = (previewTool as { tool_call_id?: string }).tool_call_id
-    if (!id) return previewTool
+    if (!activePreviewTool) return null
+    const id = (activePreviewTool as { tool_call_id?: string }).tool_call_id
+    if (!id) return activePreviewTool
 
     for (let i = timeline.length - 1; i >= 0; i--) {
       const item = timeline[i]
@@ -113,27 +156,70 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
         }
       }
     }
-    return previewTool
-  }, [previewTool, timeline])
+    return activePreviewTool
+  }, [activePreviewTool, timeline])
 
-  // 任务运行中自动追踪最新工具预览（VNC 打开时暂停）
-  useEffect(() => {
-    if (session?.status !== 'running' || vncOpen) return
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    isChatPinnedToBottomRef.current = true
+    container.scrollTo({ top: container.scrollHeight, behavior })
+  }, [])
 
-    const latestTool = findLatestTool(timeline)
-    const toolCount = timeline.reduce((n, item) => {
-      if (item.kind === 'tool') return n + 1
-      if (item.kind === 'step') return n + item.tools.length
-      return n
-    }, 0)
+  const updateChatPinnedState = useCallback(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    isChatPinnedToBottomRef.current = isNearScrollBottom(container)
+  }, [])
 
-    if (toolCount > prevToolCountRef.current && latestTool) {
-      setPreviewTool(latestTool)
-      setPreviewFile(null)
-      scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
+  const handleRightPanelResizeStart = useCallback((event: PointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+
+    const target = event.currentTarget
+    const pointerId = event.pointerId
+    target.setPointerCapture?.(pointerId)
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
+      const maxWidth = Math.max(
+        RIGHT_PANEL_MIN_WIDTH,
+        Math.min(RIGHT_PANEL_MAX_WIDTH, window.innerWidth - MAIN_CONTENT_MIN_WIDTH)
+      )
+      setRightPanelWidth(
+        getNextResizableWidth({
+          side: 'right',
+          pointerX: moveEvent.clientX,
+          viewportWidth: window.innerWidth,
+          min: RIGHT_PANEL_MIN_WIDTH,
+          max: maxWidth,
+        })
+      )
     }
-    prevToolCountRef.current = toolCount
-  }, [timeline, session?.status, vncOpen])
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', cleanup)
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      try {
+        target.releasePointerCapture?.(pointerId)
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', cleanup)
+  }, [])
+
+  useEffect(() => {
+    if (!isChatPinnedToBottomRef.current) return
+    const frame = requestAnimationFrame(() => scrollToBottom('auto'))
+    return () => cancelAnimationFrame(frame)
+  }, [events.length, scrollToBottom])
 
   useEffect(() => {
     if (
@@ -159,6 +245,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const handleSend = useCallback(
     async (message: string, uploadedFiles: FileInfo[]) => {
       try {
+        scrollToBottom('smooth')
         const attachmentIds = uploadedFiles.map((f) => f.id)
         await sendMessage(message, attachmentIds, mode)
       } catch (e) {
@@ -166,7 +253,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
         throw e
       }
     },
-    [mode, sendMessage]
+    [mode, scrollToBottom, sendMessage]
   )
 
   const handleViewAllFiles = useCallback(() => {
@@ -175,6 +262,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   }, [refreshFiles])
 
   const handleFileClick = useCallback((file: AttachmentFile) => {
+    setAutoPreviewEnabled(true)
     setPreviewFile(file)
     setPreviewTool(null)
     setTraceOpen(false)
@@ -183,30 +271,57 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
   const handleToolClick = useCallback((tool: ToolEvent) => {
     const kind = getToolKind(tool)
     if (kind === 'message') return
+    setAutoPreviewEnabled(true)
     setPreviewTool(tool)
+    setPreviewToolSelectionCount(toolCount)
     setPreviewFile(null)
     setTraceOpen(false)
-  }, [])
+  }, [toolCount])
 
   const handleClosePreview = useCallback(() => {
+    setAutoPreviewEnabled(false)
     setPreviewFile(null)
     setPreviewTool(null)
   }, [])
 
   const handleTraceOpen = useCallback(() => {
+    setAutoPreviewEnabled(false)
     setPreviewFile(null)
     setPreviewTool(null)
     setTraceOpen(true)
   }, [])
 
-  const handleJumpToLatest = useCallback(() => {
+  const handleTraceClose = useCallback(() => {
+    setTraceOpen(false)
+  }, [])
+
+  const handleAutoPreviewChange = useCallback((enabled: boolean) => {
+    setAutoPreviewEnabled(enabled)
+    if (!enabled) {
+      setPreviewFile(null)
+      setPreviewTool(null)
+      return
+    }
+
     const latest = findLatestTool(timeline)
     if (latest) {
       setPreviewTool(latest)
+      setPreviewToolSelectionCount(toolCount)
+      setPreviewFile(null)
+      setTraceOpen(false)
+    }
+  }, [timeline, toolCount])
+
+  const handleJumpToLatest = useCallback(() => {
+    const latest = findLatestTool(timeline)
+    if (latest) {
+      setAutoPreviewEnabled(true)
+      setPreviewTool(latest)
+      setPreviewToolSelectionCount(toolCount)
       setPreviewFile(null)
     }
-    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
-  }, [timeline])
+    scrollToBottom('smooth')
+  }, [scrollToBottom, timeline, toolCount])
 
   const handleOpenVNC = useCallback(() => {
     setVncOpen(true)
@@ -216,14 +331,13 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
     setVncOpen(false)
     // 关闭 VNC 后跳转到最新工具
     const latest = findLatestTool(timeline)
-    if (latest && session?.status === 'running') {
+    if (latest && session?.status === 'running' && autoPreviewEnabled) {
       setPreviewTool(latest)
+      setPreviewToolSelectionCount(toolCount)
       setPreviewFile(null)
-      setTimeout(() => {
-        scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: 'smooth' })
-      }, 100)
+      setTimeout(() => scrollToBottom('smooth'), 100)
     }
-  }, [timeline, session?.status])
+  }, [autoPreviewEnabled, scrollToBottom, timeline, toolCount, session?.status])
 
   const handleStop = useCallback(async () => {
     if (!session) return
@@ -289,10 +403,12 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
                 onFetchFiles={refreshFiles}
                 onFileClick={handleFileClick}
                 onTraceOpen={handleTraceOpen}
+                autoPreviewEnabled={autoPreviewEnabled}
+                onAutoPreviewChange={handleAutoPreviewChange}
               />
             </div>
 
-            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto" onScroll={updateChatPinnedState}>
               <div className="flex flex-col w-full gap-3 pt-3">
                 {timeline.length === 0 && !streaming && !hasInitialMessage && (
                   <div className="flex items-center justify-center py-8 text-sm text-gray-500">
@@ -309,7 +425,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
                   />
                 ))}
 
-                {(session?.status === 'running' || (hasInitialMessage && !initialMessageSentRef.current)) && (
+                {(session?.status === 'running' || hasInitialMessage) && (
                   <div className="flex items-center gap-2 text-sm text-gray-500 py-3">
                     <Loader2 className="size-4 animate-spin" />
                     <span>正在思考中...</span>
@@ -339,14 +455,38 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
 
         {/* 文件预览面板 */}
         {previewFile && (
-          <div className="flex-shrink-0 w-[600px] h-full animate-in slide-in-from-right duration-300">
+          <div
+            className="relative flex-shrink-0 h-full animate-in slide-in-from-right duration-300"
+            style={{ width: rightPanelWidth }}
+          >
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整右侧面板宽度"
+              onPointerDown={handleRightPanelResizeStart}
+              className="absolute inset-y-0 left-0 z-30 w-2 -translate-x-1/2 cursor-col-resize"
+            >
+              <div className="mx-auto h-full w-px bg-transparent transition-colors hover:bg-gray-300" />
+            </div>
             <FilePreviewPanel file={previewFile} onClose={handleClosePreview} />
           </div>
         )}
 
         {/* 工具预览面板 */}
         {resolvedPreviewTool && (
-          <div className="flex-shrink-0 w-[600px] h-full py-2 pr-2 animate-in slide-in-from-right duration-300">
+          <div
+            className="relative flex-shrink-0 h-full py-2 pr-2 animate-in slide-in-from-right duration-300"
+            style={{ width: rightPanelWidth }}
+          >
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整右侧面板宽度"
+              onPointerDown={handleRightPanelResizeStart}
+              className="absolute inset-y-0 left-0 z-30 w-2 -translate-x-1/2 cursor-col-resize"
+            >
+              <div className="mx-auto h-full w-px bg-transparent transition-colors hover:bg-gray-300" />
+            </div>
             <ToolPreviewPanel
               tool={resolvedPreviewTool}
               onClose={handleClosePreview}
@@ -357,9 +497,7 @@ export function SessionDetailView({ sessionId, initialMessage, initialAttachment
         )}
 
         {traceOpen && (
-          <div className="flex-shrink-0 h-full animate-in slide-in-from-right duration-300">
-            <TracePanel sessionId={sessionId} onClose={() => setTraceOpen(false)} />
-          </div>
+          <TracePanel sessionId={sessionId} onClose={handleTraceClose} />
         )}
       </div>
 

@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar'
 import { Button } from '@/components/ui/button'
-import { Activity, Download, FileSearchCorner, FileText } from 'lucide-react'
+import {
+  Activity,
+  Download,
+  FileSearchCorner,
+  FileText,
+  PanelRightClose,
+  PanelRightOpen,
+} from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -43,6 +50,10 @@ export interface SessionHeaderProps {
   onFileClick?: (file: AttachmentFile) => void
   /** 点击 Trace 入口 */
   onTraceOpen?: () => void
+  /** 右侧工具预览是否允许自动打开 */
+  autoPreviewEnabled?: boolean
+  /** 切换右侧工具预览自动打开 */
+  onAutoPreviewChange?: (enabled: boolean) => void
 }
 
 export function SessionHeader({
@@ -53,6 +64,8 @@ export function SessionHeader({
   onFetchFiles,
   onFileClick,
   onTraceOpen,
+  autoPreviewEnabled = true,
+  onAutoPreviewChange,
 }: SessionHeaderProps) {
   const { open, isMobile } = useSidebar()
   const [mounted, setMounted] = useState(false)
@@ -141,6 +154,17 @@ export function SessionHeader({
           aria-label="打开 Trace"
         >
           <Activity />
+        </Button>
+      )}
+      {onAutoPreviewChange && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="cursor-pointer flex-shrink-0"
+          onClick={() => onAutoPreviewChange(!autoPreviewEnabled)}
+          aria-label={autoPreviewEnabled ? '关闭右侧自动预览' : '打开右侧自动预览'}
+        >
+          {autoPreviewEnabled ? <PanelRightClose /> : <PanelRightOpen />}
         </Button>
       )}
       {mounted ? (
