@@ -118,6 +118,7 @@ class SkillRuntime:
                     session_id=session_id,
                     exec_dir=base_dir,
                     command=(
+                        f"rm -rf {content_dir} && "
                         f"python3 -m zipfile -e {bundle_path} {content_dir}"
                     ),
                 )

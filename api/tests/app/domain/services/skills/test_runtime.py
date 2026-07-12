@@ -83,6 +83,23 @@ def test_runtime_syncs_full_bundle_once_for_concurrent_loads() -> None:
     asyncio.run(scenario())
 
 
+def test_runtime_replaces_existing_content_before_extracting() -> None:
+    async def scenario() -> None:
+        sandbox = FakeSandbox()
+        runtime = SkillRuntime((make_snapshot(),), sandbox)
+
+        await runtime.load("demo")
+
+        content_dir = "/home/ubuntu/.mooc-manus/skills/skill-id/content"
+        assert sandbox.commands == [
+            f"rm -rf {content_dir} && python3 -m zipfile -e "
+            "/home/ubuntu/.mooc-manus/skills/skill-id/bundle.zip "
+            f"{content_dir}"
+        ]
+
+    asyncio.run(scenario())
+
+
 def test_catalog_contains_only_metadata() -> None:
     runtime = SkillRuntime(
         (
