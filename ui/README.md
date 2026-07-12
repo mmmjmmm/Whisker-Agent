@@ -1,76 +1,117 @@
-# MoocManus 前端 UI
+# MoocManus UI
 
-基于 Next.js 构建的前端用户界面，提供会话管理、AI 对话、远程桌面（VNC）等交互功能。
+`ui/` 是 MoocManus 的前端应用，基于 Next.js App Router 构建。它提供会话列表、任务对话、文件上传、配置管理、Skill 管理、工具调用展示、Trace 面板、文件预览和沙箱 VNC 预览。
 
 ## 技术栈
 
-- Next.js 16 (React 19)
-- TypeScript
+- Node.js 22+
+- Next.js 16、React 19、TypeScript
 - Tailwind CSS 4
-- Radix UI (组件库)
-- noVNC (远程桌面)
+- Radix UI、lucide-react、sonner
+- noVNC
+- react-markdown、remark-gfm
 
-## 项目结构
+## 目录结构
 
-```
+```text
 ui/
 ├── src/
-│   ├── app/               # 页面路由
-│   │   ├── page.tsx       # 首页
-│   │   └── sessions/      # 会话页面
-│   ├── components/        # 组件
-│   │   ├── ui/            # 基础 UI 组件
-│   │   └── tool-use/      # 工具使用相关组件
-│   ├── lib/
-│   │   └── api/           # API 客户端
-│   ├── hooks/             # 自定义 Hooks
-│   └── providers/         # Context Providers
-├── public/                # 静态资源
-├── next.config.ts         # Next.js 配置
-├── Dockerfile
+│   ├── app/                  # App Router 页面：/、/sessions、/sessions/[id]
+│   ├── components/           # 业务组件：聊天、会话、设置、预览、Trace、VNC
+│   ├── components/ui/        # 基础 UI 组件
+│   ├── components/tool-use/  # 工具调用事件展示组件
+│   ├── config/               # 前端静态配置
+│   ├── hooks/                # 会话和响应式相关 Hooks
+│   ├── lib/api/              # API 客户端与类型
+│   ├── lib/                  # SSE 事件和工具函数
+│   └── providers/            # 全局状态 Provider
+├── public/                   # 静态资源
+├── docs/design/              # UI 设计参考图
+├── next.config.ts
 ├── package.json
-└── tsconfig.json
+├── package-lock.json
+└── Dockerfile
 ```
 
-## API 调用
+## 页面与功能
 
-项目通过环境变量 `NEXT_PUBLIC_API_BASE_URL` 配置 API 地址：
+| 页面 | 说明 |
+| --- | --- |
+| `/` | 首页输入任务，选择 `react` 或 `team` 模式，上传附件后创建会话 |
+| `/sessions` | 重定向到 `/` |
+| `/sessions/[id]` | 会话详情页，展示事件流、任务进度、工具调用、文件、Trace 和 VNC |
 
-- **开发环境**：默认 `http://localhost:8000/api`（直连 API 服务）
-- **生产环境**：构建时设置为 `/api`（通过 Nginx 反向代理）
+主要组件：
+
+- `left-panel`、`session-list`：会话列表和实时刷新。
+- `chat-input`、`chat-message`、`session-detail-view`：任务输入和事件时间线。
+- `manus-settings`：LLM、Agent、MCP、A2A 配置。
+- `skill-settings`：Skill 上传、查看、启用、删除。
+- `trace-panel`：Trace 列表、详情和指标展示。
+- `file-preview-panel`、`tool-preview-panel`、`vnc-viewer`：文件、工具和沙箱浏览器预览。
+
+## API 地址
+
+前端通过 `NEXT_PUBLIC_API_BASE_URL` 配置后端地址：
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8088/api
+```
+
+当前代码默认值是 `http://localhost:8088/api`。Docker 构建时由根目录 `docker-compose.yml` 注入：
+
+```yaml
+args:
+  NEXT_PUBLIC_API_BASE_URL: /api
+```
+
+生产容器中使用 `/api`，由 Nginx 反向代理到后端。
 
 ## 本地开发
 
-### 环境准备
-
-- Node.js >= 22
-- npm >= 10
-
-### 安装与启动
-
 ```bash
-# 安装依赖
+cd ui
 npm install
-
-# 启动开发服务器
 npm run dev
 ```
 
-开发服务器默认运行在 `http://localhost:3000`，API 请求自动转发到 `http://localhost:8000/api`。
+开发服务默认运行在：
 
-### 构建
+```text
+http://localhost:3000
+```
+
+如果 API 没有通过根目录 Nginx 暴露在 `8088`，启动前显式设置：
 
 ```bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api npm run dev
+```
+
+## 构建与检查
+
+```bash
+cd ui
 npm run build
 npm run start
+npm run lint
 ```
+
+`next.config.ts` 使用 `output: "standalone"`，Dockerfile 会复制 standalone 产物到生产镜像。
 
 ## Docker 部署
 
-UI 服务通过根目录的 `docker-compose.yml` 统一部署。Dockerfile 采用多阶段构建：
+UI 通常由根目录 `docker-compose.yml` 统一部署：
 
-1. **deps** - 安装 npm 依赖
-2. **builder** - 构建 Next.js 应用（standalone 模式）
-3. **runner** - 最小化生产镜像
+```bash
+docker compose up -d --build manus-ui
+```
 
-构建时通过 `NEXT_PUBLIC_API_BASE_URL=/api` 参数将 API 地址设置为相对路径，由 Nginx 统一代理。
+镜像构建阶段：
+
+1. `deps`：通过 `npm ci` 安装依赖。
+2. `builder`：执行 `npm run build`。
+3. `runner`：以 standalone 模式运行 `server.js`，监听 `3000`。
+
+## 设计素材
+
+`ui/docs/design/` 保存当前界面的设计参考图，包含首页、配置页、文件预览、VNC、命令行预览和任务列表等状态。

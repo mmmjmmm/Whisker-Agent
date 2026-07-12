@@ -1,1 +1,48 @@
-Generic single-database configuration.
+# Alembic 数据库迁移
+
+`api/alembic/` 存放 MoocManus API 的数据库迁移脚本。API 服务启动时会自动执行 `alembic upgrade head`，因此正常部署不需要手动建表。
+
+## 目录
+
+```text
+api/alembic/
+├── env.py                 # Alembic 运行环境，加载 SQLAlchemy metadata
+├── script.py.mako         # 迁移脚本模板
+├── versions/              # 迁移版本文件
+└── README
+```
+
+当前迁移覆盖：
+
+- `sessions`：任务会话和事件数据。
+- `files`：上传文件元信息。
+- `skills`：全局 Skill 元信息和包存储引用。
+- `trace_spans`：Agent/LLM/Tool/Event Trace 明细。
+
+## 常用命令
+
+以下命令从 `api/` 目录执行。
+
+```bash
+# 升级到最新版本
+alembic upgrade head
+
+# 查看当前数据库版本
+alembic current
+
+# 查看迁移历史
+alembic history
+
+# 根据 ORM metadata 生成迁移
+alembic revision --autogenerate -m "描述本次变更"
+
+# 回滚一个版本
+alembic downgrade -1
+```
+
+## 开发约定
+
+- 修改 ORM 模型后再生成迁移，生成后需要人工检查字段类型、索引、默认值和回滚逻辑。
+- 新迁移脚本只放在 `api/alembic/versions/`。
+- 不要直接编辑已经在共享环境执行过的历史迁移；需要修正时新增迁移。
+- 本地验证至少执行一次 `alembic upgrade head`。
