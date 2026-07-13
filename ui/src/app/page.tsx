@@ -55,7 +55,7 @@ export default function Page() {
         <div className="w-full max-w-full sm:max-w-[768px] sm:min-w-[390px] mx-auto">
           {/* 对话提示内容 */}
           <div className="font-display text-[28px] sm:text-[40px] leading-[1.08] font-normal mb-5 sm:mb-7 text-center sm:text-left">
-            <div className="text-foreground">您好, 慕学员</div>
+            <div className="text-foreground">您好, </div>
             <div className="text-emphasis">我能为您做什么?</div>
           </div>
           {/* 对话框 */}
