@@ -1,5 +1,25 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+import asyncio
+import http.client
+import logging
+import socket
+import threading
+import xmlrpc.client
+from datetime import datetime, timedelta
+from typing import List, Any, Optional
+
+from app.core.config import get_settings
+from app.interfaces.errors.exceptions import BadRequestException, AppException
+from app.models.supervisor import ProcessInfo, SupervisorActionResult, SupervisorTimeout
+
+"""
+1.Supervisor启动后，通过一个Unix套接字文件来实现通信(rpc协议)
+2.连接这个通信文件，/tmp/supervisor.sock (xml-rpc连接)
+3.使用某种方式来完整转换，让xml-rpc实现连接supervisor.sock
+4.连接之后我们就可以调用rpc对应的方法，getAllProcessInfo()
+"""
+
 logger = logging.getLogger(__name__)
 
 
