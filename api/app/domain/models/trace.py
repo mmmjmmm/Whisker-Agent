@@ -10,6 +10,7 @@ class TraceSpanType(str, Enum):
     ROOT = "root"
     FLOW = "flow"
     AGENT = "agent"
+    TASK = "task"
     LLM = "llm"
     TOOL = "tool"
     EVENT = "event"
@@ -19,6 +20,8 @@ class TraceSpanStatus(str, Enum):
     RUNNING = "running"
     OK = "ok"
     ERROR = "error"
+    WAITING = "waiting"
+    CANCELLED = "cancelled"
 
 
 class TraceSpan(BaseModel):

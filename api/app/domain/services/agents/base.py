@@ -4,6 +4,8 @@ import asyncio
 import logging
 import uuid
 from abc import ABC
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Optional, List, AsyncGenerator, Dict, Any, Callable
 
 from app.domain.external.json_parser import JSONParser
@@ -69,6 +71,52 @@ class BaseAgent(ABC):
                 tool.has_tool("load_skill") for tool in self._tools
         ):
             self._tool_choice = None
+
+    @asynccontextmanager
+    async def _trace_span(
+            self,
+            *,
+            span_type: TraceSpanType,
+            name: str,
+            input: Any = None,
+            attributes: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any | None]:
+        if self._trace_recorder is None:
+            yield None
+            return
+
+        async with self._trace_recorder.span(
+                span_type=span_type,
+                name=name,
+                input=input,
+                attributes=attributes,
+        ) as scope:
+            yield scope
+
+    @asynccontextmanager
+    async def _trace_agent_operation(
+            self,
+            *,
+            name: str,
+            operation: str,
+            input: Any = None,
+            attributes: dict[str, Any] | None = None,
+            attempt: int = 1,
+            max_attempts: int = 1,
+    ) -> AsyncIterator[Any | None]:
+        async with self._trace_span(
+                span_type=TraceSpanType.AGENT,
+                name=name,
+                input=input,
+                attributes={
+                    "agent_name": self.name,
+                    "operation": operation,
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    **(attributes or {}),
+                },
+        ) as scope:
+            yield scope
 
     async def _ensure_memory(self) -> None:
         """确保智能体记忆是存在的"""
@@ -138,60 +186,57 @@ class BaseAgent(ABC):
 
         # 3.循环向LLM发起提问直到最大重试次数
         error = "调用语言模型发生错误"
-        for _ in range(self._agent_config.max_retries):
+        for attempt in range(1, self._agent_config.max_retries + 1):
             try:
                 # 4.调用语言模型获取响应内容
                 available_tools = self._get_available_tools()
-                llm_span = None
-                if self._trace_recorder:
-                    llm_span = await self._trace_recorder.start_span(
-                        span_type=TraceSpanType.LLM,
-                        name=self._llm.model_name,
-                        input={
-                            "message_count": len(self._memory.get_messages()),
-                            "new_message_count": len(messages),
-                        },
-                        attributes={
-                            "agent_name": self.name,
-                            "model": self._llm.model_name,
-                            "temperature": self._llm.temperature,
-                            "max_tokens": self._llm.max_tokens,
-                            "tool_count": len(available_tools),
-                            "response_format": response_format,
-                        },
-                    )
-                try:
+                llm_name = "llm"
+                trace_attributes = None
+                if self._trace_recorder is not None:
+                    llm_name = self._llm.model_name
+                    trace_attributes = {
+                        "agent_name": self.name,
+                        "model": llm_name,
+                        "temperature": self._llm.temperature,
+                        "max_tokens": self._llm.max_tokens,
+                        "tool_count": len(available_tools),
+                        "response_format": response_format,
+                        "attempt": attempt,
+                        "max_attempts": self._agent_config.max_retries,
+                    }
+                async with self._trace_span(
+                    span_type=TraceSpanType.LLM,
+                    name=llm_name,
+                    input={
+                        "message_count": len(self._memory.get_messages()),
+                        "new_message_count": len(messages),
+                    },
+                    attributes=trace_attributes,
+                ) as trace_scope:
                     message = await self._llm.invoke(
                         messages=self._memory.get_messages(),
                         tools=available_tools,
                         response_format=response_format,
                         tool_choice=self._tool_choice,
                     )
-                except Exception as exc:
-                    if self._trace_recorder:
-                        await self._trace_recorder.end_span(
-                            llm_span,
-                            error=exc,
+                    usage = message.get("_usage") or {}
+                    if trace_scope is not None:
+                        trace_scope.finish(
+                            output={
+                                "role": message.get("role"),
+                                "content": message.get("content"),
+                                "tool_calls": message.get("tool_calls"),
+                            },
+                            attributes={
+                                "agent_name": self.name,
+                                "model": llm_name,
+                                "prompt_tokens": usage.get("prompt_tokens"),
+                                "completion_tokens": usage.get("completion_tokens"),
+                                "total_tokens": usage.get("total_tokens"),
+                                "attempt": attempt,
+                                "max_attempts": self._agent_config.max_retries,
+                            },
                         )
-                    raise
-
-                usage = message.get("_usage") or {}
-                if self._trace_recorder:
-                    await self._trace_recorder.end_span(
-                        llm_span,
-                        output={
-                            "role": message.get("role"),
-                            "content": message.get("content"),
-                            "tool_calls": message.get("tool_calls"),
-                        },
-                        attributes={
-                            "agent_name": self.name,
-                            "model": self._llm.model_name,
-                            "prompt_tokens": usage.get("prompt_tokens"),
-                            "completion_tokens": usage.get("completion_tokens"),
-                            "total_tokens": usage.get("total_tokens"),
-                        },
-                    )
 
                 # 5.处理AI响应内容避免空回复
                 if message.get("role") == "assistant":
@@ -233,14 +278,19 @@ class BaseAgent(ABC):
         # 11.所有重试均已耗尽仍未获得有效响应，抛出异常避免返回None
         raise RuntimeError(f"调用语言模型失败, 已达到最大重试次数({self._agent_config.max_retries}): {error}")
 
-    async def _invoke_tool(self, tool: BaseTool, tool_name: str, arguments: Dict[str, Any]) -> ToolResult:
+    async def _invoke_tool(
+            self,
+            tool: BaseTool,
+            tool_name: str,
+            arguments: Dict[str, Any],
+            tool_call_id: str,
+    ) -> ToolResult:
         """传递工具包+工具名字+对应参数调用指定工具"""
         # 1.执行循环调用工具获取结果
         err = ""
-        for _ in range(self._agent_config.max_retries):
-            tool_span = None
-            if self._trace_recorder:
-                tool_span = await self._trace_recorder.start_span(
+        for attempt in range(1, self._agent_config.max_retries + 1):
+            try:
+                async with self._trace_span(
                     span_type=TraceSpanType.TOOL,
                     name=tool_name,
                     input=arguments,
@@ -248,41 +298,34 @@ class BaseAgent(ABC):
                         "agent_name": self.name,
                         "tool_package": tool.name,
                         "function_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "attempt": attempt,
+                        "max_attempts": self._agent_config.max_retries,
                     },
-                )
-            try:
-                result = await tool.invoke(tool_name, **arguments)
-                result_error = None
-                if not result.success:
-                    result_error = {
-                        "message": result.message or "tool returned failure"
-                    }
-                if self._trace_recorder:
-                    await self._trace_recorder.end_span(
-                        tool_span,
-                        output=result.model_dump(mode="json"),
-                        error=result_error,
-                        attributes={
-                            "agent_name": self.name,
-                            "tool_package": tool.name,
-                            "function_name": tool_name,
-                            "success": result.success,
-                        },
-                    )
+                ) as trace_scope:
+                    result = await tool.invoke(tool_name, **arguments)
+                    result_error = None
+                    if not result.success:
+                        result_error = {
+                            "message": result.message or "tool returned failure"
+                        }
+                    if trace_scope is not None:
+                        trace_scope.finish(
+                            output=result.model_dump(mode="json"),
+                            error=result_error,
+                            attributes={
+                                "agent_name": self.name,
+                                "tool_package": tool.name,
+                                "function_name": tool_name,
+                                "success": result.success,
+                                "tool_call_id": tool_call_id,
+                                "attempt": attempt,
+                                "max_attempts": self._agent_config.max_retries,
+                            },
+                        )
                 return result
             except Exception as e:
                 err = str(e)
-                if self._trace_recorder:
-                    await self._trace_recorder.end_span(
-                        tool_span,
-                        error=e,
-                        attributes={
-                            "agent_name": self.name,
-                            "tool_package": tool.name,
-                            "function_name": tool_name,
-                            "success": False,
-                        },
-                    )
                 logger.exception(f"调用工具[{tool_name}]出错, 错误: {str(e)}")
                 await asyncio.sleep(self._retry_interval)
                 continue
@@ -389,7 +432,12 @@ class BaseAgent(ABC):
                 )
 
                 # 9.调用工具并获取结果
-                result = await self._invoke_tool(tool, function_name, function_args)
+                result = await self._invoke_tool(
+                    tool,
+                    function_name,
+                    function_args,
+                    tool_call_id,
+                )
 
                 # 10.返回工具调用结果，其中tool_content比较特殊，需要在业务中进行实现
                 yield ToolEvent(

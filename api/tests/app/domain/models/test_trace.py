@@ -37,6 +37,12 @@ def test_trace_span_defaults() -> None:
     assert span.attributes == {}
 
 
+def test_trace_execution_types_and_terminal_statuses() -> None:
+    assert TraceSpanType("task") is TraceSpanType.TASK
+    assert TraceSpanStatus("waiting") is TraceSpanStatus.WAITING
+    assert TraceSpanStatus("cancelled") is TraceSpanStatus.CANCELLED
+
+
 def test_trace_summary_and_metrics_shapes() -> None:
     summary = TraceSummary(
         trace_id="trace-1",

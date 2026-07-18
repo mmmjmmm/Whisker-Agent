@@ -9,12 +9,24 @@ import {
   type CSSProperties,
   type PointerEvent,
 } from 'react'
-import { Activity, AlertCircle, Clock, Database, X } from 'lucide-react'
+import {
+  Activity,
+  AlertCircle,
+  Ban,
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  CirclePause,
+  Clock,
+  Database,
+  X,
+} from 'lucide-react'
 import { sessionApi } from '@/lib/api/session'
 import type {
   TraceDetailData,
   TraceMetrics,
   TraceSpan,
+  TraceSpanStatus,
   TraceSummary,
 } from '@/lib/api/types'
 import { Button } from '@/components/ui/button'
@@ -23,6 +35,11 @@ import {
   DialogContent,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { clampPanelSize } from '@/lib/ui-layout'
 
 export interface TracePanelProps {
@@ -36,6 +53,8 @@ const TRACE_LIST_MAX_WIDTH = 520
 const SPAN_TREE_DEFAULT_HEIGHT = 260
 const SPAN_TREE_MIN_HEIGHT = 140
 const SPAN_TREE_MAX_HEIGHT = 560
+const DEFAULT_EXPANDED_SPAN_TYPES: ReadonlySet<TraceSpan['span_type']> =
+  new Set(['root', 'flow'])
 
 function formatMs(value?: number | null) {
   if (value === null || value === undefined) return '-'
@@ -58,6 +77,67 @@ function buildChildren(spans: TraceSpan[]) {
   return map
 }
 
+function attributeText(value: unknown) {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value)
+  }
+  return ''
+}
+
+function spanDisplayName(span: TraceSpan) {
+  if (span.span_type !== 'task') return span.name
+
+  const taskId = attributeText(span.attributes.task_id)
+  const stepId = attributeText(span.attributes.step_id)
+  const description = attributeText(span.attributes.description)
+  const taskLabel = [taskId || stepId, description].filter(Boolean).join(' · ')
+  return taskLabel || span.name
+}
+
+function TraceStatusIcon({
+  status,
+  size = 13,
+}: {
+  status: TraceSpanStatus
+  size?: number
+}) {
+  let label = '运行中'
+  let className = 'text-sky-600'
+  let icon = <Clock size={size} />
+
+  if (status === 'error') {
+    label = '失败'
+    className = 'text-red-500'
+    icon = <AlertCircle size={size} />
+  } else if (status === 'waiting') {
+    label = '等待输入'
+    className = 'text-amber-600'
+    icon = <CirclePause size={size} />
+  } else if (status === 'cancelled') {
+    label = '已取消'
+    className = 'text-muted-foreground'
+    icon = <Ban size={size} />
+  } else if (status === 'ok') {
+    label = '成功'
+    className = 'text-emerald-600'
+    icon = <CircleCheck size={size} />
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          aria-label={label}
+          className={`inline-flex shrink-0 items-center justify-center ${className}`}
+        >
+          {icon}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" sideOffset={4}>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function SpanTree({
   spans,
   selectedId,
@@ -69,29 +149,78 @@ function SpanTree({
 }) {
   const children = useMemo(() => buildChildren(spans), [spans])
   const spanIds = useMemo(() => new Set(spans.map((span) => span.id)), [spans])
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
+    return new Set(
+      spans
+        .filter((span) => DEFAULT_EXPANDED_SPAN_TYPES.has(span.span_type))
+        .map((span) => span.id)
+    )
+  })
   const roots = spans.filter((span) => {
     return !span.parent_span_id || !spanIds.has(span.parent_span_id)
   })
 
   const renderNode = (span: TraceSpan, depth: number) => {
     const isSelected = span.id === selectedId
+    const childSpans = children.get(span.id) ?? []
+    const hasChildren = childSpans.length > 0
+    const isExpanded = expandedIds.has(span.id)
+    const displayName = spanDisplayName(span)
+
+    const toggleExpanded = () => {
+      setExpandedIds((current) => {
+        const next = new Set(current)
+        if (next.has(span.id)) {
+          next.delete(span.id)
+        } else {
+          next.add(span.id)
+        }
+        return next
+      })
+    }
+
     return (
       <div key={span.id}>
-        <button
-          type="button"
-          onClick={() => onSelect(span)}
-          className={`w-full rounded-md border px-2 py-1.5 text-left text-xs transition-colors duration-200 ${
+        <div
+          className={`flex h-8 min-w-0 items-center rounded-md border text-xs transition-colors duration-200 ${
             isSelected
-              ? 'border-emphasis bg-primary text-primary-foreground'
+              ? 'border-emphasis bg-secondary'
               : 'border-border bg-card hover:bg-secondary'
           }`}
-          style={{ paddingLeft: 8 + depth * 14 }}
+          style={{ paddingLeft: 4 + depth * 14 }}
         >
-          <span className={`block min-w-0 break-words ${span.status === 'error' ? 'text-red-500' : ''}`}>
-            {span.span_type} · {span.name} · {formatMs(span.duration_ms)}
-          </span>
-        </button>
-        {(children.get(span.id) ?? []).map((child) => renderNode(child, depth + 1))}
+          {hasChildren ? (
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              aria-label={isExpanded ? '收起子 Span' : '展开子 Span'}
+              title={isExpanded ? '收起子 Span' : '展开子 Span'}
+              onClick={toggleExpanded}
+              className="flex size-7 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
+            >
+              {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+          ) : (
+            <span className="block size-7 shrink-0" />
+          )}
+          <button
+            type="button"
+            onClick={() => onSelect(span)}
+            className="flex h-full min-w-0 flex-1 items-center gap-1.5 pr-2 text-left"
+            title={`${span.span_type} · ${displayName}`}
+          >
+            <TraceStatusIcon status={span.status} />
+            <span className="shrink-0 text-muted-foreground">{span.span_type}</span>
+            <span className="shrink-0 text-muted-foreground">·</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{displayName}</span>
+            <span className="shrink-0 text-muted-foreground">
+              {formatMs(span.duration_ms)}
+            </span>
+          </button>
+        </div>
+        {hasChildren && isExpanded
+          ? childSpans.map((child) => renderNode(child, depth + 1))
+          : null}
       </div>
     )
   }
@@ -296,11 +425,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                         <span className="min-w-0 truncate font-medium">
                           {trace.root_input_preview || trace.trace_id}
                         </span>
-                        {trace.status === 'error' ? (
-                          <AlertCircle size={13} className="shrink-0 text-red-500" />
-                        ) : (
-                          <Clock size={13} className="shrink-0" />
-                        )}
+                        <TraceStatusIcon status={trace.status} />
                       </div>
                       <div className="font-meta mt-1 break-words text-muted-foreground">
                         {formatMs(trace.duration_ms)} · {trace.error_count} 错误 · {trace.total_tokens} Token
@@ -327,6 +452,7 @@ export function TracePanel({ sessionId, onClose }: TracePanelProps) {
                   <div className="min-w-0 p-3">
                     {detail ? (
                       <SpanTree
+                        key={detail.trace_id}
                         spans={detail.spans}
                         selectedId={selectedSpan?.id}
                         onSelect={setSelectedSpan}

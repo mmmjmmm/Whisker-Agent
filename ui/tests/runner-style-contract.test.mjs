@@ -125,3 +125,22 @@ test('settings and trace use Runner workbench shells', () => {
   assert.match(trace, /'--trace-list-width'/)
   assert.match(trace, /sm:grid-cols-\[var\(--trace-list-width\)/)
 })
+
+test('trace renders the execution hierarchy and terminal states', () => {
+  const types = read('src/lib/api/types.ts')
+  const trace = read('src/components/trace-panel.tsx')
+  const statusType = types.match(/export type TraceSpanStatus =([\s\S]*?);/)?.[1] ?? ''
+  const spanType = types.match(/export type TraceSpanType =([\s\S]*?);/)?.[1] ?? ''
+
+  assert.match(spanType, /\| "task"/)
+  assert.match(statusType, /\| "waiting"/)
+  assert.match(statusType, /\| "cancelled"/)
+  assert.match(trace, /DEFAULT_EXPANDED_SPAN_TYPES/)
+  assert.match(trace, /ChevronDown/)
+  assert.match(trace, /ChevronRight/)
+  assert.match(trace, /task_id/)
+  assert.match(trace, /step_id/)
+  assert.match(trace, /description/)
+  assert.match(trace, /status === 'waiting'/)
+  assert.match(trace, /status === 'cancelled'/)
+})

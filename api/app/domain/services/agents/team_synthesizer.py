@@ -20,19 +20,36 @@ class TeamSynthesizerAgent(BaseAgent):
         self,
         graph: TaskGraph,
         emit: Callable[[BaseEvent], Awaitable[None]] | None = None,
+        *,
+        attempt: int = 1,
+        max_attempts: int = 1,
     ) -> FinalTeamResponse:
-        async for event in self.invoke(graph.model_dump_json()):
-            if isinstance(event, ToolEvent):
-                self._skill_events.append(event)
-                if emit is not None:
-                    await emit(event)
-                continue
-            if isinstance(event, ErrorEvent):
-                raise RuntimeError(event.error)
-            if isinstance(event, MessageEvent):
-                parsed = await self._json_parser.invoke(event.message)
-                return FinalTeamResponse.model_validate(parsed)
-        raise RuntimeError("synthesizer produced no response")
+        async with self._trace_agent_operation(
+                name="team_synthesizer.synthesize",
+                operation="synthesize",
+                input=graph.model_dump(mode="json"),
+                attributes={
+                    "graph_id": graph.id,
+                    "graph_status": graph.status.value,
+                },
+                attempt=attempt,
+                max_attempts=max_attempts,
+        ) as trace_scope:
+            async for event in self.invoke(graph.model_dump_json()):
+                if isinstance(event, ToolEvent):
+                    self._skill_events.append(event)
+                    if emit is not None:
+                        await emit(event)
+                    continue
+                if isinstance(event, ErrorEvent):
+                    raise RuntimeError(event.error)
+                if isinstance(event, MessageEvent):
+                    parsed = await self._json_parser.invoke(event.message)
+                    response = FinalTeamResponse.model_validate(parsed)
+                    if trace_scope is not None:
+                        trace_scope.finish(output=response.model_dump(mode="json"))
+                    return response
+            raise RuntimeError("synthesizer produced no response")
 
     def drain_skill_events(self) -> list[BaseEvent]:
         events = self._skill_events

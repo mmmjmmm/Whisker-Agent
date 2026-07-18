@@ -21,7 +21,6 @@ from app.domain.services.agents.task_worker import TaskWorker
 from app.domain.services.agents.team_planner import TeamPlannerAgent
 from app.domain.services.agents.team_synthesizer import TeamSynthesizerAgent
 from app.domain.services.flows.base import BaseFlow
-from app.domain.services.team.graph import build_task_graph
 from app.domain.services.team.orchestrator import TeamOrchestrator
 from app.domain.services.team.policy import ToolPolicy
 from app.domain.services.tools.browser import BrowserTool
@@ -79,11 +78,14 @@ class TeamFlow(BaseFlow):
     async def invoke(self, message: Message):
         self._done = False
         validation_error = None
-        for _ in range(2):
+        planner_max_attempts = 2
+        for attempt in range(1, planner_max_attempts + 1):
             try:
-                planned = await self._planner.create_graph(
+                self._graph = await self._planner.create_graph(
                     message,
                     validation_error,
+                    attempt=attempt,
+                    max_attempts=planner_max_attempts,
                 )
                 for event in getattr(
                     self._planner,
@@ -91,10 +93,6 @@ class TeamFlow(BaseFlow):
                     lambda: [],
                 )():
                     yield event
-                self._graph = build_task_graph(
-                    planned,
-                    self._team_max_tasks,
-                )
                 break
             except ValueError as exc:
                 for event in getattr(
@@ -163,10 +161,15 @@ class TeamFlow(BaseFlow):
                 TaskGraphStatus.PARTIAL,
             }:
                 last_error = None
-                for _ in range(2):
+                synthesizer_max_attempts = 2
+                for attempt in range(1, synthesizer_max_attempts + 1):
                     synthesizer = self._synthesizer_factory()
                     try:
-                        final = await synthesizer.synthesize(self._graph)
+                        final = await synthesizer.synthesize(
+                            self._graph,
+                            attempt=attempt,
+                            max_attempts=synthesizer_max_attempts,
+                        )
                         for event in getattr(
                             synthesizer,
                             "drain_skill_events",
@@ -306,7 +309,13 @@ def build_team_flow(
         }
     )
 
-    def worker_factory(graph_id, agent_id, task, attempt):
+    def worker_factory(
+        graph_id,
+        agent_id,
+        task,
+        attempt,
+        max_attempts=agent_config.team_max_task_retries + 1,
+    ):
         worker_tools = policy.tools_for(task.capability)
         allowed_names = set(policy.allowed_names(task.capability))
         if catalog:
@@ -327,6 +336,7 @@ def build_team_flow(
             task=task,
             agent_id=agent_id,
             attempt=attempt,
+            max_attempts=max_attempts,
         )
 
     orchestrator = TeamOrchestrator(
@@ -335,6 +345,7 @@ def build_team_flow(
         max_workers=agent_config.team_max_workers,
         max_retries=agent_config.team_max_task_retries,
         timeout_seconds=agent_config.team_task_timeout_seconds,
+        trace_recorder=trace_recorder,
     )
 
     def synthesizer_factory():

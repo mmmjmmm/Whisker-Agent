@@ -264,11 +264,17 @@ export type SessionDetail = Session & {
   events?: SSEEventData[];
 };
 
-export type TraceSpanStatus = "running" | "ok" | "error";
+export type TraceSpanStatus =
+  | "running"
+  | "ok"
+  | "error"
+  | "waiting"
+  | "cancelled";
 
 export type TraceSpanType =
   | "root"
   | "flow"
+  | "task"
   | "agent"
   | "llm"
   | "tool"

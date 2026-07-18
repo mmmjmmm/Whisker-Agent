@@ -130,7 +130,15 @@ class TraceService:
             started_at=started_at,
             ended_at=ended_at,
             duration_ms=duration_ms,
-            status=TraceSpanStatus.ERROR if error_count else TraceSpanStatus.OK,
+            status=(
+                root.status
+                if root is not None
+                else (
+                    TraceSpanStatus.ERROR
+                    if error_count
+                    else TraceSpanStatus.OK
+                )
+            ),
             root_input_preview=root_input_preview,
             span_count=len(ordered),
             error_count=error_count,

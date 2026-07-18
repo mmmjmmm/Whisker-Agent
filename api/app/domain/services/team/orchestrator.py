@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Protocol
 
 from app.domain.models.event import BaseEvent, TeamTaskEvent
@@ -11,6 +12,8 @@ from app.domain.models.team import (
     TeamTaskStatus,
     WorkerResult,
 )
+from app.domain.models.trace import TraceSpanStatus, TraceSpanType
+from app.domain.services.tracing import TraceRecorder
 from app.domain.services.team.graph import (
     finalize_graph,
     propagate_skipped,
@@ -31,7 +34,7 @@ class WorkerExecutor(Protocol):
     ) -> WorkerResult: ...
 
 
-WorkerFactory = Callable[[str, str, TeamTask, int], WorkerExecutor]
+WorkerFactory = Callable[[str, str, TeamTask, int, int], WorkerExecutor]
 
 
 class TeamOrchestrator:
@@ -43,12 +46,43 @@ class TeamOrchestrator:
         max_workers: int,
         max_retries: int,
         timeout_seconds: float,
+        trace_recorder: TraceRecorder | None = None,
     ):
         self._worker_factory = worker_factory
         self._is_parallel_safe = is_parallel_safe
         self._max_workers = max_workers
         self._max_retries = max_retries
         self._timeout_seconds = timeout_seconds
+        self._trace_recorder = trace_recorder
+
+    @asynccontextmanager
+    async def _trace_task(self, graph: TaskGraph, task: TeamTask):
+        if self._trace_recorder is None:
+            yield None
+            return
+
+        async with self._trace_recorder.span(
+            span_type=TraceSpanType.TASK,
+            name="team.task",
+            input=task.model_dump(
+                mode="json",
+                include={
+                    "id",
+                    "description",
+                    "dependencies",
+                    "capability",
+                    "success_criteria",
+                },
+            ),
+            attributes={
+                "graph_id": graph.id,
+                "task_id": task.id,
+                "description": task.description,
+                "capability": task.capability.value,
+                "max_attempts": self._max_retries + 1,
+            },
+        ) as scope:
+            yield scope
 
     async def _emit_task(
         self,
@@ -80,49 +114,86 @@ class TeamOrchestrator:
             if (dependency_task := graph.task_by_id(dependency)).result is not None
         }
 
-        for attempt in range(1, self._max_retries + 2):
-            task.attempt_count = attempt
-            task.status = TeamTaskStatus.RUNNING
-            task.error = None
-            await self._emit_task(graph, task, emit)
+        max_attempts = self._max_retries + 1
+        async with self._trace_task(graph, task) as trace_scope:
             try:
-                worker = self._worker_factory(
-                    graph.id,
-                    task.assigned_agent_id,
-                    task,
-                    attempt,
-                )
-                result = await asyncio.wait_for(
-                    worker.execute(
-                        goal=graph.goal,
-                        dependency_results=dependency_results,
-                        attachments=attachments,
-                        emit=emit,
-                    ),
-                    timeout=self._timeout_seconds,
-                )
-                if not result.success:
-                    raise RuntimeError(result.summary or "worker reported failure")
-                task.result = result
-                task.status = TeamTaskStatus.COMPLETED
-                await self._emit_task(graph, task, emit)
-                return
-            except asyncio.CancelledError:
-                task.status = TeamTaskStatus.CANCELLED
-                task.error = "cancelled"
-                raise
-            except TimeoutError:
-                task.error = "task_timeout"
-            except Exception as exc:
-                task.error = str(exc)
+                for attempt in range(1, max_attempts + 1):
+                    task.attempt_count = attempt
+                    task.status = TeamTaskStatus.RUNNING
+                    task.error = None
+                    await self._emit_task(graph, task, emit)
+                    try:
+                        worker = self._worker_factory(
+                            graph.id,
+                            task.assigned_agent_id,
+                            task,
+                            attempt,
+                            max_attempts,
+                        )
+                        result = await asyncio.wait_for(
+                            worker.execute(
+                                goal=graph.goal,
+                                dependency_results=dependency_results,
+                                attachments=attachments,
+                                emit=emit,
+                            ),
+                            timeout=self._timeout_seconds,
+                        )
+                        if not result.success:
+                            raise RuntimeError(
+                                result.summary or "worker reported failure"
+                            )
+                        task.result = result
+                        task.status = TeamTaskStatus.COMPLETED
+                        await self._emit_task(graph, task, emit)
+                        if trace_scope is not None:
+                            trace_scope.finish(
+                                output=task.model_dump(mode="json"),
+                                attributes={
+                                    "agent_id": task.assigned_agent_id,
+                                    "attempt_count": task.attempt_count,
+                                    "task_status": task.status.value,
+                                },
+                            )
+                        return
+                    except asyncio.CancelledError:
+                        task.status = TeamTaskStatus.CANCELLED
+                        task.error = "cancelled"
+                        raise
+                    except TimeoutError:
+                        task.error = "task_timeout"
+                    except Exception as exc:
+                        task.error = str(exc)
 
-            if attempt <= self._max_retries:
-                task.status = TeamTaskStatus.RETRYING
-                await self._emit_task(graph, task, emit)
-            else:
-                task.status = TeamTaskStatus.FAILED
-                await self._emit_task(graph, task, emit)
-                return
+                    if attempt <= self._max_retries:
+                        task.status = TeamTaskStatus.RETRYING
+                        await self._emit_task(graph, task, emit)
+                    else:
+                        task.status = TeamTaskStatus.FAILED
+                        await self._emit_task(graph, task, emit)
+                        if trace_scope is not None:
+                            trace_scope.finish(
+                                output=task.model_dump(mode="json"),
+                                error={"message": task.error or "task failed"},
+                                attributes={
+                                    "agent_id": task.assigned_agent_id,
+                                    "attempt_count": task.attempt_count,
+                                    "task_status": task.status.value,
+                                },
+                            )
+                        return
+            except asyncio.CancelledError:
+                if trace_scope is not None:
+                    trace_scope.finish(
+                        output=task.model_dump(mode="json"),
+                        status=TraceSpanStatus.CANCELLED,
+                        attributes={
+                            "agent_id": task.assigned_agent_id,
+                            "attempt_count": task.attempt_count,
+                            "task_status": task.status.value,
+                        },
+                    )
+                raise
 
     async def run(
         self,

@@ -21,13 +21,14 @@ from app.domain.models.app_config import AgentConfig, MCPConfig, A2AConfig
 from app.domain.models.event import ErrorEvent, Event, MessageEvent, BaseEvent, ToolEvent, ToolEventStatus, \
     BrowserToolContent, SearchToolContent, ShellToolContent, FileToolContent, MCPToolContent, A2AToolContent, \
     SkillToolContent, TitleEvent, WaitEvent, DoneEvent
+from app.domain.models.event import TaskGraphEvent
 from app.domain.models.file import File
 from app.domain.models.message import Message
 from app.domain.models.search import SearchResults
 from app.domain.models.session import SessionStatus
 from app.domain.models.team import AgentMode
 from app.domain.models.skill import SkillSnapshot
-from app.domain.models.trace import TraceSpanType
+from app.domain.models.trace import TraceSpanStatus, TraceSpanType
 from app.domain.models.tool_result import ToolResult
 from app.domain.repositories.uow import IUnitOfWork
 from app.domain.services.flows.base import BaseFlow
@@ -117,21 +118,6 @@ class AgentTaskRunner(TaskRunner):
         # 1.往任务的输出消息队列中新增事件
         event_id = await task.output_stream.put(event.model_dump_json())
         event.id = event_id
-
-        event_span = await self._trace_recorder.start_span(
-            span_type=TraceSpanType.EVENT,
-            name=event.type,
-            attributes={
-                "event_id": event.id,
-                "event_type": event.type,
-                "tool_call_id": getattr(event, "tool_call_id", None),
-                "graph_id": getattr(event, "graph_id", None),
-                "task_id": getattr(event, "task_id", None),
-                "agent_id": getattr(event, "agent_id", None),
-                "attempt": getattr(event, "attempt", None),
-            },
-        )
-        await self._trace_recorder.end_span(event_span)
 
         # 2.将事件添加到对应的会话中
         async with self._uow:
@@ -389,17 +375,30 @@ class AgentTaskRunner(TaskRunner):
             self._active_flow = self._team_flow_factory()
         else:
             raise ValueError(f"不支持的 Agent mode: {mode}")
-        flow_span = await self._trace_recorder.start_span(
+        async with self._trace_recorder.span(
             span_type=TraceSpanType.FLOW,
             name=self._trace_flow_name(mode),
             attributes={"agent_mode": mode.value},
-        )
-        flow_error = None
-        try:
+        ) as flow_scope:
             async with aclosing(self._active_flow.invoke(message)) as flow_events:
                 async for event in flow_events:
                     if isinstance(event, ErrorEvent):
-                        flow_error = {"message": event.error}
+                        flow_scope.finish(error={"message": event.error})
+                    elif isinstance(event, WaitEvent):
+                        flow_scope.finish(
+                            status=TraceSpanStatus.WAITING,
+                            output={"status": "waiting"},
+                        )
+                    elif isinstance(event, TaskGraphEvent):
+                        flow_scope.finish(
+                            output={
+                                "graph_id": event.graph.id,
+                                "graph_status": event.graph.status.value,
+                            },
+                            attributes={
+                                "graph_status": event.graph.status.value,
+                            },
+                        )
 
                     # 3.判断是否为工具事件，如果是则额外处理
                     if isinstance(event, ToolEvent):
@@ -410,11 +409,6 @@ class AgentTaskRunner(TaskRunner):
 
                     # 5.将事件直接返回
                     yield event
-        except Exception as exc:
-            flow_error = exc
-            raise
-        finally:
-            await self._trace_recorder.end_span(flow_span, error=flow_error)
 
     async def _persist_cancellation(self, task: Task) -> None:
         """由 Runner 按顺序持久化活动 Flow 的取消快照。"""
@@ -471,75 +465,98 @@ class AgentTaskRunner(TaskRunner):
                 )
 
                 # 6.传递消息对象并运行PlannerReActFlow
-                root_span = await self._trace_recorder.start_span(
-                    span_type=TraceSpanType.ROOT,
-                    name="chat",
-                    trace_id=str(uuid.uuid4()),
-                    input={
-                        "message": message[:500],
-                        "attachment_count": len(event.attachments),
-                        "agent_mode": mode.value,
-                    },
-                    attributes={
-                        "session_id": self._session_id,
-                        "agent_mode": mode.value,
-                    },
-                )
-                root_error = None
+                cancellation_token = None
                 try:
-                    # 驱动 PlannerReActFlow，获取他 yeild 的每个事件
-                    async with aclosing(
-                        self._run_flow(message_obj, mode)
-                    ) as flow_events:
-                        async for event in flow_events:
-                            if isinstance(event, ErrorEvent):
-                                root_error = {"message": event.error}
-
-                            # 7.将得到的事件添加到消息队列中
-                            await self._put_and_add_event(task, event)
-
-                            # 8.如果事件类型为标题事件则更新会话标题
-                            if isinstance(event, TitleEvent):
-                                async with self._uow:
-                                    await self._uow.session.update_title(
-                                        self._session_id,
-                                        event.title,
-                                    )
-                            elif isinstance(event, MessageEvent):
-                                # 9.更新最新消息并新增未读消息数
-                                async with self._uow:
-                                    await self._uow.session.update_latest_message(
-                                        self._session_id,
-                                        event.message,
-                                        event.created_at,
-                                    )
-                                    await self._uow.session.increment_unread_message_count(
-                                        self._session_id
-                                    )
-                            elif isinstance(event, WaitEvent):
-                                # 10.等待用户输入并终止本轮
-                                async with self._uow:
-                                    await self._uow.session.update_status(
-                                        self._session_id,
-                                        SessionStatus.WAITING,
-                                    )
-                                return
-
-                            # 11.新输入到达时显式关闭当前 Flow
-                            if not await task.input_stream.is_empty():
-                                break
-                except Exception as exc:
-                    root_error = exc
-                    raise
-                finally:
-                    await self._trace_recorder.end_span(
-                        root_span,
-                        error=root_error,
+                    async with self._trace_recorder.span(
+                        span_type=TraceSpanType.ROOT,
+                        name="chat",
+                        trace_id=str(uuid.uuid4()),
+                        input={
+                            "message": message[:500],
+                            "attachment_count": len(event.attachments),
+                            "agent_mode": mode.value,
+                        },
                         attributes={
                             "session_id": self._session_id,
                             "agent_mode": mode.value,
                         },
-                    )
+                    ) as root_scope:
+                        # 驱动 Flow，获取它 yield 的每个事件
+                        async with aclosing(
+                            self._run_flow(message_obj, mode)
+                        ) as flow_events:
+                            async for event in flow_events:
+                                if isinstance(event, ErrorEvent):
+                                    root_scope.finish(
+                                        error={"message": event.error}
+                                    )
+                                elif isinstance(event, WaitEvent):
+                                    root_scope.finish(
+                                        status=TraceSpanStatus.WAITING,
+                                        output={"status": "waiting"},
+                                    )
+                                elif isinstance(event, TaskGraphEvent):
+                                    root_scope.finish(
+                                        output={
+                                            "graph_id": event.graph.id,
+                                            "graph_status": event.graph.status.value,
+                                        },
+                                        attributes={
+                                            "graph_status": event.graph.status.value,
+                                        },
+                                    )
+
+                                # 7.将得到的事件添加到消息队列中
+                                await self._put_and_add_event(task, event)
+
+                                # 8.如果事件类型为标题事件则更新会话标题
+                                if isinstance(event, TitleEvent):
+                                    async with self._uow:
+                                        await self._uow.session.update_title(
+                                            self._session_id,
+                                            event.title,
+                                        )
+                                elif isinstance(event, MessageEvent):
+                                    # 9.更新最新消息并新增未读消息数
+                                    async with self._uow:
+                                        await self._uow.session.update_latest_message(
+                                            self._session_id,
+                                            event.message,
+                                            event.created_at,
+                                        )
+                                        await self._uow.session.increment_unread_message_count(
+                                            self._session_id
+                                        )
+                                elif isinstance(event, WaitEvent):
+                                    # 10.等待用户输入并终止本轮
+                                    async with self._uow:
+                                        await self._uow.session.update_status(
+                                            self._session_id,
+                                            SessionStatus.WAITING,
+                                        )
+                                    return
+
+                                # 11.新输入到达时显式关闭当前 Flow
+                                if not await task.input_stream.is_empty():
+                                    cancellation_token = (
+                                        self._trace_recorder.set_cancellation_reason(
+                                            "superseded_by_new_input"
+                                        )
+                                    )
+                                    root_scope.finish(
+                                        status=TraceSpanStatus.CANCELLED,
+                                        attributes={
+                                            "cancellation_reason": (
+                                                "superseded_by_new_input"
+                                            )
+                                        },
+                                    )
+                                    break
+                finally:
+                    if cancellation_token is not None:
+                        self._trace_recorder.reset_cancellation_reason(
+                            cancellation_token
+                        )
 
             # 12.更新会话状态为已完成
             async with self._uow:

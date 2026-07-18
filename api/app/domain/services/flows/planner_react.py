@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import logging
+from contextlib import aclosing, asynccontextmanager
 from typing import AsyncGenerator, Optional, Callable
 
 from app.domain.external.browser import Browser
@@ -9,11 +10,22 @@ from app.domain.external.llm import LLM
 from app.domain.external.sandbox import Sandbox
 from app.domain.external.search import SearchEngine
 from app.domain.models.app_config import AgentConfig
-from app.domain.models.event import BaseEvent, PlanEvent, PlanEventStatus, TitleEvent, MessageEvent
-from app.domain.models.event import DoneEvent
+from app.domain.models.event import (
+    BaseEvent,
+    DoneEvent,
+    ErrorEvent,
+    MessageEvent,
+    PlanEvent,
+    PlanEventStatus,
+    StepEvent,
+    StepEventStatus,
+    TitleEvent,
+    WaitEvent,
+)
 from app.domain.models.message import Message
 from app.domain.models.plan import Plan, ExecutionStatus
 from app.domain.models.session import SessionStatus
+from app.domain.models.trace import TraceSpanStatus, TraceSpanType
 from app.domain.services.agents.planner import PlannerAgent
 from app.domain.services.agents.react import ReActAgent
 from app.domain.services.tools.a2a import A2ATool
@@ -55,6 +67,7 @@ class PlannerReActFlow(BaseFlow):
         self._uow_factory = uow_factory
         self._uow = uow_factory()
         self._session_id = session_id
+        self._trace_recorder = trace_recorder
         self.status = FlowStatus.IDLE
         self.plan: Optional[Plan] = None
 
@@ -99,6 +112,28 @@ class PlannerReActFlow(BaseFlow):
             trace_recorder=trace_recorder,
         )
         logger.debug(f"创建执行Agent成功, 会话id: {self._session_id}")
+
+    @asynccontextmanager
+    async def _trace_step(self, plan: Plan, step, message: Message):
+        if self._trace_recorder is None:
+            yield None
+            return
+
+        async with self._trace_recorder.span(
+            span_type=TraceSpanType.TASK,
+            name="plan.step",
+            input={
+                "message": message.message,
+                "attachments": message.attachments,
+                "step": step.model_dump(mode="json"),
+            },
+            attributes={
+                "plan_id": plan.id,
+                "step_id": step.id,
+                "description": step.description,
+            },
+        ) as scope:
+            yield scope
 
     async def invoke(self, message: Message) -> AsyncGenerator[BaseEvent, None]:
         """传递消息，运行流，在六中调用planner&react智能体组合完成任务并返回对应事件"""
@@ -148,19 +183,22 @@ class PlannerReActFlow(BaseFlow):
             elif self.status == FlowStatus.PLANNING:
                 # 10.流状态为规划中，则调用规划Agent
                 logger.info(f"Planner&ReAct流开始创建计划/Plan")
-                async for event in self.planner.create_plan(message):
-                    # 11.判断规划Agent是否返回规划事件
-                    if isinstance(event, PlanEvent) and event.status == PlanEventStatus.CREATED:
-                        # 12.创建计划成功时需要更新计划
-                        self.plan = event.plan
-                        logger.info(f"Planner&ReAct流成功创建计划, 共计: {len(event.plan.steps)} 步")
+                async with aclosing(
+                    self.planner.create_plan(message)
+                ) as planner_events:
+                    async for event in planner_events:
+                        # 11.判断规划Agent是否返回规划事件
+                        if isinstance(event, PlanEvent) and event.status == PlanEventStatus.CREATED:
+                            # 12.创建计划成功时需要更新计划
+                            self.plan = event.plan
+                            logger.info(f"Planner&ReAct流成功创建计划, 共计: {len(event.plan.steps)} 步")
 
-                        # 13.在计划中同步生成了会话标题+初始AI消息
-                        yield TitleEvent(title=event.plan.title)
-                        yield MessageEvent(role="assistant", message=event.plan.message)
+                            # 13.在计划中同步生成了会话标题+初始AI消息
+                            yield TitleEvent(title=event.plan.title)
+                            yield MessageEvent(role="assistant", message=event.plan.message)
 
-                    # 14.将生成的事件直接输出(一般来说是PlanEvent)
-                    yield event
+                        # 14.将生成的事件直接输出(一般来说是PlanEvent)
+                        yield event
 
                 # 15.计划创建完成，更新流状态为执行中
                 logger.info(f"Planner&ReAct流状态从{FlowStatus.PLANNING}变成{FlowStatus.EXECUTING}")
@@ -185,8 +223,47 @@ class PlannerReActFlow(BaseFlow):
 
                 # 20.调用执行Agent执行对应的步骤
                 logger.info(f"Planner&ReAct流开始执行步骤 {step.id}: {step.description[:50]}...")
-                async for event in self.react.execute_step(self.plan, step, message):
-                    yield event
+                async with self._trace_step(self.plan, step, message) as trace_scope:
+                    async with aclosing(
+                        self.react.execute_step(self.plan, step, message)
+                    ) as step_events:
+                        async for event in step_events:
+                            if trace_scope is not None:
+                                if isinstance(event, WaitEvent):
+                                    trace_scope.finish(
+                                        status=TraceSpanStatus.WAITING,
+                                        output={
+                                            "step_id": step.id,
+                                            "status": "waiting",
+                                        },
+                                    )
+                                elif (
+                                    isinstance(event, StepEvent)
+                                    and event.status is StepEventStatus.FAILED
+                                ):
+                                    trace_scope.finish(
+                                        output=step.model_dump(mode="json"),
+                                        error={
+                                            "message": step.error or "step failed"
+                                        },
+                                    )
+                                elif isinstance(event, ErrorEvent):
+                                    trace_scope.finish(
+                                        output=step.model_dump(mode="json"),
+                                        error={"message": event.error},
+                                    )
+                            yield event
+
+                    if trace_scope is not None and trace_scope.status is None:
+                        if step.status is ExecutionStatus.FAILED:
+                            trace_scope.finish(
+                                output=step.model_dump(mode="json"),
+                                error={"message": step.error or "step failed"},
+                            )
+                        else:
+                            trace_scope.finish(
+                                output=step.model_dump(mode="json")
+                            )
 
                 # 21.压缩执行Agent记忆，避免上下文腐化+消耗大量token
                 logger.info(f"压缩{self.react.name} Agent记忆/上下文")
@@ -197,8 +274,11 @@ class PlannerReActFlow(BaseFlow):
             elif self.status == FlowStatus.UPDATING:
                 # 23.流状态为更新表示需要更新计划
                 logger.info(f"Planner&ReAct流开始更新计划")
-                async for event in self.planner.update_plan(self.plan, step):
-                    yield event
+                async with aclosing(
+                    self.planner.update_plan(self.plan, step)
+                ) as planner_events:
+                    async for event in planner_events:
+                        yield event
 
                 # 24.计划更新完成，需要执行相应的子步骤
                 logger.info(f"Planner&ReAct流状态从{FlowStatus.UPDATING}变成{FlowStatus.EXECUTING}")
@@ -206,8 +286,9 @@ class PlannerReActFlow(BaseFlow):
             elif self.status == FlowStatus.SUMMARIZING:
                 # 25.流状态为总结中，则意味着所有子步骤都执行完成
                 logger.info(f"Planner&ReAct流开始总结")
-                async for event in self.react.summarize():
-                    yield event
+                async with aclosing(self.react.summarize()) as summary_events:
+                    async for event in summary_events:
+                        yield event
 
                 # 26.总结完毕，意味着流即将结束
                 logger.info(f"Planner&ReAct流状态从{FlowStatus.SUMMARIZING}变成{FlowStatus.COMPLETED}")

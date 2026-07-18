@@ -136,3 +136,61 @@ def test_trace_service_ignores_redacted_legacy_token_metrics() -> None:
         assert metrics.total_tokens == 0
 
     asyncio.run(scenario())
+
+
+def test_trace_service_uses_root_status_when_retry_child_failed() -> None:
+    async def scenario() -> None:
+        spans = [
+            make_span("trace-1", TraceSpanType.ROOT),
+            make_span(
+                "trace-1",
+                TraceSpanType.LLM,
+                status=TraceSpanStatus.ERROR,
+                attributes={"attempt": 1},
+            ),
+            make_span(
+                "trace-1",
+                TraceSpanType.LLM,
+                attributes={"attempt": 2},
+            ),
+        ]
+        service = TraceService(lambda: FakeUow(spans))
+
+        summary = (await service.list_traces("session-1"))[0]
+        metrics = await service.get_metrics("session-1")
+
+        assert summary.status is TraceSpanStatus.OK
+        assert summary.error_count == 1
+        assert metrics.error_trace_count == 0
+        assert metrics.error_rate == 0.0
+
+    asyncio.run(scenario())
+
+
+def test_trace_service_preserves_non_error_root_outcomes() -> None:
+    async def scenario() -> None:
+        spans = [
+            make_span(
+                "trace-waiting",
+                TraceSpanType.ROOT,
+                status=TraceSpanStatus.WAITING,
+            ),
+            make_span(
+                "trace-cancelled",
+                TraceSpanType.ROOT,
+                status=TraceSpanStatus.CANCELLED,
+            ),
+        ]
+        service = TraceService(lambda: FakeUow(spans))
+
+        summaries = await service.list_traces("session-1")
+        metrics = await service.get_metrics("session-1")
+
+        assert {summary.status for summary in summaries} == {
+            TraceSpanStatus.WAITING,
+            TraceSpanStatus.CANCELLED,
+        }
+        assert metrics.error_trace_count == 0
+        assert metrics.error_rate == 0.0
+
+    asyncio.run(scenario())
