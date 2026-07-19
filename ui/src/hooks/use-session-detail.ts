@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sessionApi } from "@/lib/api/session";
 import { normalizeEvent, normalizeEvents } from "@/lib/session-events";
+import { createMessageDeltaTypewriter } from "@/lib/message-delta-typewriter";
 import type {
   AgentMode,
   SessionDetail,
@@ -51,6 +52,11 @@ export function useSessionDetail(
   const isSendMessageRef = useRef(false);
   // 记录当前收到的最后一个事件 ID
   const lastEventIdRef = useRef<string | null>(null);
+  const typewriterRef = useRef<ReturnType<typeof createMessageDeltaTypewriter> | null>(null);
+
+  const appendDisplayEvent = useCallback((ev: SSEEventData) => {
+    setEvents((prev) => [...prev, ev]);
+  }, []);
 
   const appendEvent = useCallback((ev: SSEEventData) => {
     let evToAppend = ev;
@@ -69,7 +75,24 @@ export function useSessionDetail(
     const eventId = (evToAppend.data as { event_id?: string })?.event_id;
     if (eventId) lastEventIdRef.current = eventId;
 
-    setEvents((prev) => [...prev, evToAppend]);
+    if (!typewriterRef.current) {
+      typewriterRef.current = createMessageDeltaTypewriter(appendDisplayEvent);
+    }
+
+    if (evToAppend.type === "message_delta") {
+      typewriterRef.current.enqueue(evToAppend);
+      return;
+    }
+
+    if (
+      evToAppend.type === "message" &&
+      evToAppend.data.role === "assistant" &&
+      evToAppend.data.stream_id
+    ) {
+      typewriterRef.current.clearStream(evToAppend.data.stream_id);
+    }
+
+    appendDisplayEvent(evToAppend);
 
     // 更新会话标题
     if (
@@ -142,7 +165,7 @@ export function useSessionDetail(
     if (evToAppend.type === "error") {
       setSession((prev) => (prev ? { ...prev, status: "completed" } : null));
     }
-  }, []);
+  }, [appendDisplayEvent]);
 
   const startEmptyStream = useCallback(() => {
     if (!sessionId) return;
@@ -275,6 +298,10 @@ export function useSessionDetail(
       if (messageStreamCleanupRef.current) {
         messageStreamCleanupRef.current();
         messageStreamCleanupRef.current = null;
+      }
+      if (typewriterRef.current) {
+        typewriterRef.current.stop();
+        typewriterRef.current = null;
       }
     };
   }, []);

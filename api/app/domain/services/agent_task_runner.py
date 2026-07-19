@@ -20,7 +20,7 @@ from app.domain.external.task import TaskRunner, Task
 from app.domain.models.app_config import AgentConfig, MCPConfig, A2AConfig
 from app.domain.models.event import ErrorEvent, Event, MessageEvent, BaseEvent, ToolEvent, ToolEventStatus, \
     BrowserToolContent, SearchToolContent, ShellToolContent, FileToolContent, MCPToolContent, A2AToolContent, \
-    SkillToolContent, TitleEvent, WaitEvent, DoneEvent
+    SkillToolContent, TitleEvent, WaitEvent, DoneEvent, MessageDeltaEvent
 from app.domain.models.event import TaskGraphEvent
 from app.domain.models.file import File
 from app.domain.models.message import Message
@@ -118,6 +118,9 @@ class AgentTaskRunner(TaskRunner):
         # 1.往任务的输出消息队列中新增事件
         event_id = await task.output_stream.put(event.model_dump_json())
         event.id = event_id
+
+        if isinstance(event, MessageDeltaEvent):
+            return
 
         # 2.将事件添加到对应的会话中
         async with self._uow:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import logging
+import uuid
 from typing import AsyncGenerator
 
 from app.domain.models.event import (
@@ -11,13 +12,19 @@ from app.domain.models.event import (
     ErrorEvent,
     ToolEventStatus,
     WaitEvent,
-    BaseEvent
+    BaseEvent,
+    MessageDeltaEvent,
 )
 from app.domain.models.file import File
 from app.domain.models.message import Message
 from app.domain.models.plan import Plan, Step, ExecutionStatus
 from app.domain.models.trace import TraceSpanStatus
-from app.domain.services.prompts.react import REACT_SYSTEM_PROMPT, EXECUTION_PROMPT, SUMMARIZE_PROMPT
+from app.domain.services.prompts.react import (
+    REACT_SYSTEM_PROMPT,
+    EXECUTION_PROMPT,
+    SUMMARIZE_PROMPT,
+    SUMMARIZE_TEXT_PROMPT,
+)
 from app.domain.services.prompts.system import SYSTEM_PROMPT
 from .base import BaseAgent
 
@@ -165,3 +172,48 @@ class ReActAgent(BaseAgent):
                         trace_scope.finish(error={"message": event.error})
                     # 8.其他事件则直接返回
                     yield event
+
+    async def summarize_stream(
+        self,
+        attachments: list[str] | None = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """所有步骤结束，流式生成最终自然语言回复。"""
+        attachment_paths = attachments or []
+        stream_id = str(uuid.uuid4())
+        async with self._trace_agent_operation(
+                name="react.summarize",
+                operation="summarize",
+        ) as trace_scope:
+            query = SUMMARIZE_TEXT_PROMPT.format(
+                attachments="\n".join(attachment_paths) or "无",
+            )
+            content_parts: list[str] = []
+            async for event in self._invoke_llm_streaming_text(
+                [{"role": "user", "content": query}],
+                stream_id,
+            ):
+                if isinstance(event, MessageDeltaEvent):
+                    content_parts.append(event.delta)
+                    yield event
+                    continue
+                if isinstance(event, ErrorEvent):
+                    if trace_scope is not None:
+                        trace_scope.finish(error={"message": event.error})
+                    yield event
+                    return
+                yield event
+
+            message = "".join(content_parts)
+            if trace_scope is not None:
+                trace_scope.finish(
+                    output={
+                        "message": message,
+                        "attachments": attachment_paths,
+                    }
+                )
+            yield MessageEvent(
+                role="assistant",
+                message=message,
+                attachments=[File(filepath=filepath) for filepath in attachment_paths],
+                stream_id=stream_id,
+            )

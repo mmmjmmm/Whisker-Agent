@@ -68,6 +68,15 @@ class MessageEvent(BaseEvent):
     message: str = ""  # 消息本身
     attachments: List[File] = Field(default_factory=list)  # 附件列表信息
     agent_mode: Optional[AgentMode] = None
+    stream_id: Optional[str] = None
+
+
+class MessageDeltaEvent(BaseEvent):
+    """AI消息的临时增量事件，不进入会话历史持久化。"""
+    type: Literal["message_delta"] = "message_delta"
+    stream_id: str
+    role: Literal["assistant"] = "assistant"
+    delta: str = ""
 
 
 class TaskGraphEvent(BaseEvent):
@@ -173,6 +182,7 @@ Event = Annotated[
         TitleEvent,
         StepEvent,
         MessageEvent,
+        MessageDeltaEvent,
         TaskGraphEvent,
         TeamTaskEvent,
         ToolEvent,

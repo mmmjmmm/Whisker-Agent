@@ -11,7 +11,14 @@ from typing import Optional, List, AsyncGenerator, Dict, Any, Callable
 from app.domain.external.json_parser import JSONParser
 from app.domain.external.llm import LLM
 from app.domain.models.app_config import AgentConfig
-from app.domain.models.event import ToolEvent, ToolEventStatus, ErrorEvent, MessageEvent, BaseEvent
+from app.domain.models.event import (
+    ToolEvent,
+    ToolEventStatus,
+    ErrorEvent,
+    MessageEvent,
+    MessageDeltaEvent,
+    BaseEvent,
+)
 from app.domain.models.memory import Memory
 from app.domain.models.message import Message
 from app.domain.models.trace import TraceSpanType
@@ -277,6 +284,103 @@ class BaseAgent(ABC):
 
         # 11.所有重试均已耗尽仍未获得有效响应，抛出异常避免返回None
         raise RuntimeError(f"调用语言模型失败, 已达到最大重试次数({self._agent_config.max_retries}): {error}")
+
+    async def _invoke_llm_streaming_text(
+            self,
+            messages: List[Dict[str, Any]],
+            stream_id: str,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        """调用语言模型并以增量文本事件返回自然语言响应。"""
+        await self._add_to_memory(messages)
+
+        error = "调用语言模型流式响应发生错误"
+        for attempt in range(1, self._agent_config.max_retries + 1):
+            content_parts: list[str] = []
+            usage: dict[str, Any] = {}
+            emitted_delta = False
+            llm_name = "llm"
+            trace_attributes = None
+            if self._trace_recorder is not None:
+                llm_name = self._llm.model_name
+                trace_attributes = {
+                    "agent_name": self.name,
+                    "model": llm_name,
+                    "temperature": self._llm.temperature,
+                    "max_tokens": self._llm.max_tokens,
+                    "tool_count": 0,
+                    "response_format": None,
+                    "attempt": attempt,
+                    "max_attempts": self._agent_config.max_retries,
+                }
+            try:
+                async with self._trace_span(
+                    span_type=TraceSpanType.LLM,
+                    name=llm_name,
+                    input={
+                        "message_count": len(self._memory.get_messages()),
+                        "new_message_count": len(messages),
+                    },
+                    attributes=trace_attributes,
+                ) as trace_scope:
+                    async for chunk in self._llm.stream(
+                        messages=self._memory.get_messages(),
+                        tools=[],
+                        response_format=None,
+                        tool_choice="none",
+                    ):
+                        if chunk.usage:
+                            usage = chunk.usage
+                        if not chunk.content:
+                            continue
+                        emitted_delta = True
+                        content_parts.append(chunk.content)
+                        yield MessageDeltaEvent(
+                            stream_id=stream_id,
+                            delta=chunk.content,
+                        )
+
+                    content = "".join(content_parts)
+                    if not content:
+                        logger.warning("LLM流式回复了空内容，执行重试")
+                        await self._add_to_memory([
+                            {"role": "assistant", "content": ""},
+                            {"role": "user", "content": "AI无响应内容，请继续。"},
+                        ])
+                        await asyncio.sleep(self._retry_interval)
+                        continue
+
+                    filtered_message = {
+                        "role": "assistant",
+                        "content": content,
+                    }
+                    await self._add_to_memory([filtered_message])
+                    if trace_scope is not None:
+                        trace_scope.finish(
+                            output={
+                                "role": "assistant",
+                                "content": content,
+                            },
+                            attributes={
+                                "agent_name": self.name,
+                                "model": llm_name,
+                                "prompt_tokens": usage.get("prompt_tokens"),
+                                "completion_tokens": usage.get("completion_tokens"),
+                                "total_tokens": usage.get("total_tokens"),
+                                "attempt": attempt,
+                                "max_attempts": self._agent_config.max_retries,
+                            },
+                        )
+                    return
+            except Exception as e:
+                logger.error(f"调用语言模型流式响应发生错误: {str(e)}")
+                error = str(e)
+                if emitted_delta:
+                    yield ErrorEvent(error=f"调用语言模型流式响应中断: {error}")
+                    return
+                await asyncio.sleep(self._retry_interval)
+                continue
+
+        yield ErrorEvent(error=f"调用语言模型失败, 已达到最大重试次数({self._agent_config.max_retries}): {error}")
 
     async def _invoke_tool(
             self,

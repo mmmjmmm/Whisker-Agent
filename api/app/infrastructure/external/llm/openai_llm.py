@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 import logging
+from collections.abc import AsyncIterator
 from typing import List, Dict, Any
 
 from openai import AsyncOpenAI
 
 from app.application.errors.exceptions import ServerRequestsError
-from app.domain.external.llm import LLM
+from app.domain.external.llm import LLM, LLMStreamChunk
 from app.domain.models.app_config import LLMConfig
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,51 @@ class OpenAILLM(LLM):
         except Exception as e:
             logger.error(f"调用OpenAI客户端发生错误: {str(e)}")
             raise ServerRequestsError("调用OpenAI客户端向LLM发起请求出错")
+
+    async def stream(
+            self,
+            messages: List[Dict[str, Any]],
+            tools: List[Dict[str, Any]] = None,
+            response_format: Dict[str, Any] = None,
+            tool_choice: str = None,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """使用异步OpenAI客户端发起流式文本响应"""
+        try:
+            params = {
+                "model": self._model_name,
+                "temperature": self._temperature,
+                "max_tokens": self._max_tokens,
+                "messages": messages,
+                "response_format": response_format,
+                "stream": True,
+                "timeout": self._timeout,
+            }
+            if tools:
+                params.update(
+                    {
+                        "tools": tools,
+                        "tool_choice": tool_choice,
+                        "parallel_tool_calls": False,
+                    }
+                )
+
+            logger.info(f"调用OpenAI客户端向LLM发起流式请求: {self._model_name}")
+            stream = await self._client.chat.completions.create(**params)
+            async for chunk in stream:
+                usage = (
+                    chunk.usage.model_dump()
+                    if getattr(chunk, "usage", None)
+                    else None
+                )
+                content = ""
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    content = getattr(delta, "content", None) or ""
+                if content or usage:
+                    yield LLMStreamChunk(content=content, usage=usage)
+        except Exception as e:
+            logger.error(f"调用OpenAI客户端流式响应发生错误: {str(e)}")
+            raise ServerRequestsError("调用OpenAI客户端向LLM发起流式请求出错")
 
 
 if __name__ == "__main__":

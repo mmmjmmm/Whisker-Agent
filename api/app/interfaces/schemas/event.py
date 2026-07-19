@@ -79,6 +79,7 @@ class MessageEventData(BaseEventData):
     message: str = ""
     attachments: List[File] = Field(default_factory=list)
     agent_mode: Optional[AgentMode] = None
+    stream_id: Optional[str] = None
 
 
 class MessageSSEEvent(BaseSSEEvent):
@@ -95,8 +96,22 @@ class MessageSSEEvent(BaseSSEEvent):
                 message=event.message,
                 attachments=event.attachments,
                 agent_mode=event.agent_mode,
+                stream_id=event.stream_id,
             )
         )
+
+
+class MessageDeltaEventData(BaseEventData):
+    """消息增量事件数据"""
+    stream_id: str
+    role: Literal["assistant"] = "assistant"
+    delta: str = ""
+
+
+class MessageDeltaSSEEvent(BaseSSEEvent):
+    """流式消息增量事件"""
+    event: Literal["message_delta"] = "message_delta"
+    data: MessageDeltaEventData
 
 
 class TaskGraphEventData(BaseEventData):
@@ -246,6 +261,7 @@ class ErrorSSEEvent(BaseSSEEvent):
 AgentSSEEvent = Union[
     CommonSSEEvent,
     MessageSSEEvent,
+    MessageDeltaSSEEvent,
     TitleSSEEvent,
     StepSSEEvent,
     PlanSSEEvent,

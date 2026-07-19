@@ -3,7 +3,12 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from app.domain.models.event import DoneEvent, MessageEvent, WaitEvent
+from app.domain.models.event import (
+    DoneEvent,
+    MessageDeltaEvent,
+    MessageEvent,
+    WaitEvent,
+)
 from app.domain.models.message import Message
 from app.domain.models.team import AgentMode
 from app.domain.models.trace import TraceSpan, TraceSpanType
@@ -257,6 +262,24 @@ def test_put_and_add_event_does_not_create_event_span() -> None:
             span.span_type is not TraceSpanType.EVENT
             for span in repository.spans.values()
         )
+
+    asyncio.run(scenario())
+
+
+def test_message_delta_event_is_not_persisted_to_session_history() -> None:
+    async def scenario() -> None:
+        repository = FakeTraceRepository()
+        sessions = FakeSessionRepository()
+        runner = make_runner(repository, sessions, YieldingFlow())
+        task = FakeTask(FakeInputStream([]), FakeOutputStream())
+
+        await runner._put_and_add_event(
+            task,
+            MessageDeltaEvent(stream_id="stream-1", delta="你"),
+        )
+
+        assert len(task.output_stream.items) == 1
+        assert sessions.events == []
 
     asyncio.run(scenario())
 

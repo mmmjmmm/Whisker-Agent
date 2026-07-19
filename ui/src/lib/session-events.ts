@@ -10,6 +10,7 @@ import type {
   SSEEventData,
   SSEEventType,
   ChatMessage,
+  MessageDeltaEvent,
   PlanStep,
   PlanEvent,
   StepEvent,
@@ -147,6 +148,20 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
   let toolIndex = 0;
   let stepIndex = 0;
   let errorIndex = 0;
+  const messageStreamIndexes = new Map<string, number>();
+
+  const appendAssistantAttachments = (
+    msg: ChatMessage,
+    streamId: string | undefined | null,
+  ) => {
+    if (!msg.attachments || msg.attachments.length === 0) return;
+    list.push({
+      kind: "attachments",
+      id: stableId("att", messageIndex, streamId || "assistant"),
+      role: "assistant",
+      files: msg.attachments.map(chatAttachmentToDisplay),
+    });
+  };
 
   const upsertTeamStep = (
     graphId: string,
@@ -185,6 +200,7 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
           // 用户消息标志着新的对话轮次，清除 step 上下文
           lastStepId = null;
           teamStepIndexes.clear();
+          messageStreamIndexes.clear();
           
           list.push({
             kind: "user",
@@ -200,20 +216,57 @@ export function eventsToTimeline(events: SSEEventData[]): TimelineItem[] {
             });
           }
         } else if (msg.role === "assistant") {
+          if (msg.stream_id) {
+            const streamIndex = messageStreamIndexes.get(msg.stream_id);
+            if (streamIndex !== undefined) {
+              const existing = list[streamIndex];
+              if (existing.kind === "assistant") {
+                list[streamIndex] = {
+                  ...existing,
+                  data: msg,
+                };
+                appendAssistantAttachments(msg, msg.stream_id);
+                break;
+              }
+            }
+          }
+
           // 所有 assistant 消息都直接添加，不去重
           list.push({
             kind: "assistant",
             id: stableId("assistant", messageIndex++, String(list.length)),
             data: msg,
           });
-          if (msg.attachments && msg.attachments.length > 0) {
-            list.push({
-              kind: "attachments",
-              id: stableId("att", messageIndex, "assistant"),
+          appendAssistantAttachments(msg, msg.stream_id);
+        }
+        break;
+      }
+      case "message_delta": {
+        const delta = ev.data as MessageDeltaEvent;
+        const existingIndex = messageStreamIndexes.get(delta.stream_id);
+        if (existingIndex === undefined) {
+          messageStreamIndexes.set(delta.stream_id, list.length);
+          list.push({
+            kind: "assistant",
+            id: stableId("assistant-stream", messageIndex++, delta.stream_id),
+            data: {
               role: "assistant",
-              files: msg.attachments.map(chatAttachmentToDisplay),
-            });
-          }
+              message: delta.delta,
+              stream_id: delta.stream_id,
+            },
+          });
+          break;
+        }
+
+        const existing = list[existingIndex];
+        if (existing.kind === "assistant") {
+          list[existingIndex] = {
+            ...existing,
+            data: {
+              ...existing.data,
+              message: `${existing.data.message ?? ""}${delta.delta}`,
+            },
+          };
         }
         break;
       }

@@ -286,7 +286,17 @@ class PlannerReActFlow(BaseFlow):
             elif self.status == FlowStatus.SUMMARIZING:
                 # 25.流状态为总结中，则意味着所有子步骤都执行完成
                 logger.info(f"Planner&ReAct流开始总结")
-                async with aclosing(self.react.summarize()) as summary_events:
+                attachments = []
+                seen_attachments = set()
+                for plan_step in self.plan.steps:
+                    for attachment in plan_step.attachments:
+                        if attachment in seen_attachments:
+                            continue
+                        seen_attachments.add(attachment)
+                        attachments.append(attachment)
+                async with aclosing(
+                    self.react.summarize_stream(attachments=attachments)
+                ) as summary_events:
                     async for event in summary_events:
                         yield event
 

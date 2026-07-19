@@ -83,6 +83,7 @@ class FakeReact:
     def __init__(self, recorder: TraceRecorder, *, wait: bool) -> None:
         self._recorder = recorder
         self._wait = wait
+        self.summary_attachments = None
 
     async def roll_back(self, message) -> None:
         return None
@@ -105,6 +106,10 @@ class FakeReact:
             step.status = ExecutionStatus.COMPLETED
             step.success = True
             step.result = "done"
+            step.attachments = [
+                "/home/ubuntu/report.md",
+                "/home/ubuntu/report.md",
+            ]
             scope.finish(output=step.model_dump(mode="json"))
             yield StepEvent(step=step, status=StepEventStatus.COMPLETED)
 
@@ -112,6 +117,10 @@ class FakeReact:
         return None
 
     async def summarize(self):
+        yield MessageEvent(role="assistant", message="final")
+
+    async def summarize_stream(self, attachments=None):
+        self.summary_attachments = attachments
         yield MessageEvent(role="assistant", message="final")
 
 
@@ -155,6 +164,7 @@ def test_planner_react_flow_records_step_task_hierarchy() -> None:
                 async for event in flow.invoke(Message(message="trace this"))
             ]
 
+        assert flow.react.summary_attachments == ["/home/ubuntu/report.md"]
         task_span = next(
             span for span in repository.spans.values()
             if span.span_type is TraceSpanType.TASK

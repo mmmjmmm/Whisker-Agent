@@ -243,6 +243,16 @@ export type ChatMessage = {
     [key: string]: unknown;
   }>;
   agent_mode?: AgentMode | null;
+  stream_id?: string | null;
+  [key: string]: unknown;
+};
+
+export type MessageDeltaEvent = {
+  stream_id: string;
+  role: "assistant";
+  delta: string;
+  event_id?: string;
+  created_at?: number;
   [key: string]: unknown;
 };
 
@@ -390,6 +400,7 @@ export type SkillToolContent = {
  */
 export type SSEEventType =
   | "message"
+  | "message_delta"
   | "title"
   | "plan"
   | "step"
@@ -405,6 +416,7 @@ export type SSEEventType =
  */
 export type SSEEventData =
   | { type: "message"; data: ChatMessage }
+  | { type: "message_delta"; data: MessageDeltaEvent }
   | { type: "title"; data: { title: string } }
   | { type: "plan"; data: PlanEvent }
   | { type: "step"; data: StepEvent }
